@@ -1,0 +1,156 @@
+package com.artemiy.uprucheet;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Bundle;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+import org.json.JSONObject;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+
+public class MainActivity extends Activity {
+    static final int REQ_EXPORT = 501;
+    static final int REQ_IMPORT = 502;
+    static final int REQ_PERMS = 503;
+
+    WebView webView;
+    String pendingExport;
+    private String pendingOpen;
+    private boolean pageReady;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        webView = new WebView(this);
+        webView.setBackgroundColor(Color.rgb(245, 246, 250));
+        setContentView(webView);
+
+        WebSettings s = webView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        s.setTextZoom(100);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri u = request.getUrl();
+                String scheme = u.getScheme();
+                if ("tel".equals(scheme) || "mailto".equals(scheme) || "http".equals(scheme) || "https".equals(scheme)) {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {}
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                pageReady = true;
+                if (pendingOpen != null) {
+                    emit("open", pendingOpen);
+                    pendingOpen = null;
+                }
+            }
+        });
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.addJavascriptInterface(new Bridge(this), "Native");
+        webView.loadUrl("file:///android_asset/index.html");
+
+        handleIntent(getIntent());
+        Alarms.scheduleDaily(this);
+        new Thread(() -> {
+            Store.autoBackup(this, false);
+            CalendarSync.snapshot(this);
+        }).start();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleIntent(intent);
+    }
+
+    private void handleIntent(Intent intent) {
+        if (intent == null) return;
+        String open = intent.getStringExtra("open");
+        if (open == null || open.isEmpty()) return;
+        if (pageReady) emit("open", open);
+        else pendingOpen = open;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (pageReady) emit("resume", "");
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // Смена режима экрана Mate XT (сложен / двойной / тройной) не пересоздаёт Activity — данные и ввод сохраняются.
+        emit("screen", newConfig.screenWidthDp + "x" + newConfig.screenHeightDp);
+    }
+
+    /** Отправляет событие в JS: window.__native(type, payload). */
+    void emit(String type, String payload) {
+        if (webView == null) return;
+        String js = "window.__native&&window.__native(" + JSONObject.quote(type) + "," + JSONObject.quote(payload == null ? "" : payload) + ")";
+        runOnUiThread(() -> webView.evaluateJavascript(js, null));
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        Uri uri = data == null ? null : data.getData();
+        if (requestCode == REQ_EXPORT) {
+            boolean ok = false;
+            if (resultCode == RESULT_OK && uri != null && pendingExport != null) {
+                try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                    out.write(pendingExport.getBytes(StandardCharsets.UTF_8));
+                    ok = true;
+                } catch (Exception ignored) {
+                }
+            }
+            pendingExport = null;
+            emit("exported", ok ? "ok" : "fail");
+        } else if (requestCode == REQ_IMPORT) {
+            if (resultCode == RESULT_OK && uri != null) {
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    emit("imported", Store.readAll(in));
+                    return;
+                } catch (Exception ignored) {
+                }
+            }
+            emit("imported", "");
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        emit("permissions", "");
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView != null) {
+            webView.evaluateJavascript("window.__back?window.__back():false", value -> {
+                if (!"true".equals(value)) MainActivity.super.onBackPressed();
+            });
+        } else {
+            super.onBackPressed();
+        }
+    }
+}
