@@ -5,7 +5,10 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
+import android.database.Cursor;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
+import android.util.Base64;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -14,6 +17,7 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -22,9 +26,11 @@ public class MainActivity extends Activity {
     static final int REQ_EXPORT = 501;
     static final int REQ_IMPORT = 502;
     static final int REQ_PERMS = 503;
+    static final int REQ_IMPORT_RAW = 504;
 
     WebView webView;
     String pendingExport;
+    String pendingImportKind = "";
     private String pendingOpen;
     private boolean pageReady;
 
@@ -125,6 +131,23 @@ public class MainActivity extends Activity {
             }
             pendingExport = null;
             emit("exported", ok ? "ok" : "fail");
+        } else if (requestCode == REQ_IMPORT_RAW) {
+            if (resultCode == RESULT_OK && uri != null) {
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+                    byte[] chunk = new byte[16384];
+                    int n;
+                    while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+                    JSONObject o = new JSONObject()
+                            .put("kind", pendingImportKind)
+                            .put("name", displayName(uri))
+                            .put("b64", Base64.encodeToString(buf.toByteArray(), Base64.NO_WRAP));
+                    emit("importedRaw", o.toString());
+                    return;
+                } catch (Exception ignored) {
+                }
+            }
+            emit("importedRaw", "");
         } else if (requestCode == REQ_IMPORT) {
             if (resultCode == RESULT_OK && uri != null) {
                 try (InputStream in = getContentResolver().openInputStream(uri)) {
@@ -135,6 +158,15 @@ public class MainActivity extends Activity {
             }
             emit("imported", "");
         }
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) return c.getString(0);
+        } catch (Exception ignored) {
+        }
+        String p = uri.getLastPathSegment();
+        return p == null ? "" : p;
     }
 
     @Override

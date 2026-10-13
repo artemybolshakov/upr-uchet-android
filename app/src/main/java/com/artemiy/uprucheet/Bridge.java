@@ -60,6 +60,19 @@ public final class Bridge {
         });
     }
 
+    /** Выбор файла для импорта (CSV/XLS/XLSX/ICS): содержимое отдаётся в JS как base64, чтобы корректно читать любые кодировки. */
+    @JavascriptInterface
+    public void importRaw(String kind) {
+        a.pendingImportKind = kind == null ? "" : kind;
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        a.runOnUiThread(() -> {
+            try { a.startActivityForResult(i, MainActivity.REQ_IMPORT_RAW); }
+            catch (Exception e) { a.emit("importedRaw", ""); }
+        });
+    }
+
     @JavascriptInterface
     public void importFile() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
