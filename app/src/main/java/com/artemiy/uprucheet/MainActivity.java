@@ -34,9 +34,20 @@ public class MainActivity extends Activity {
     private String pendingOpen;
     private boolean pageReady;
 
+    private static java.lang.ref.WeakReference<MainActivity> currentRef = new java.lang.ref.WeakReference<>(null);
+
+    static MainActivity current() { return currentRef.get(); }
+
+    @Override
+    protected void onDestroy() {
+        if (currentRef.get() == this) currentRef = new java.lang.ref.WeakReference<>(null);
+        super.onDestroy();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        currentRef = new java.lang.ref.WeakReference<>(this);
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(245, 246, 250));
         setContentView(webView);

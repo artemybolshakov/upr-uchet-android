@@ -32,9 +32,41 @@ public final class Bridge {
     @JavascriptInterface
     public boolean save(String json) {
         boolean ok = Store.write(Store.dataFile(a), json);
-        if (ok) Store.autoBackup(a, false);
+        if (ok) {
+            Store.autoBackup(a, false);
+            WebServer.REV.incrementAndGet();
+        }
         return ok;
     }
+
+    // ---------- Доступ с компьютера по Wi-Fi ----------
+
+    @JavascriptInterface
+    public String webStatus() { return WebAccessService.statusJson(); }
+
+    @JavascriptInterface
+    public void webStart() {
+        a.runOnUiThread(() -> {
+            try {
+                a.startService(new Intent(a, WebAccessService.class).setAction(WebAccessService.ACTION_START));
+            } catch (Exception e) {
+                a.emit("webStatus", "error");
+            }
+        });
+    }
+
+    @JavascriptInterface
+    public void webStop() {
+        a.runOnUiThread(() -> {
+            try {
+                a.startService(new Intent(a, WebAccessService.class).setAction(WebAccessService.ACTION_STOP));
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    @JavascriptInterface
+    public double dataRev() { return WebServer.REV.get(); }
 
     @JavascriptInterface
     public boolean backupNow() { return Store.autoBackup(a, true); }
