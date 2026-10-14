@@ -84,35 +84,39 @@
       return new TextDecoder('utf-8').decode(raw);
     };
   }
+  // теги ищем по локальному имени: некоторые генераторы пишут <x:row>, <x:c> и т.п.
+  const tags = (node, name) => Array.from(node.getElementsByTagNameNS('*', name));
   async function parseXLSX(bytes) {
     const get = await unzip(bytes);
     const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
     const ssText = await get('xl/sharedStrings.xml');
-    const shared = ssText ? Array.from(xml(ssText).getElementsByTagName('si')).map((si) => Array.from(si.getElementsByTagName('t')).map((t) => t.textContent).join('')) : [];
+    const shared = ssText ? tags(xml(ssText), 'si').map((si) => tags(si, 't').map((t) => t.textContent).join('')) : [];
     let sheetPath = 'xl/worksheets/sheet1.xml';
     const wb = await get('xl/workbook.xml'), rels = await get('xl/_rels/workbook.xml.rels');
     if (wb && rels) {
-      const first = xml(wb).getElementsByTagName('sheet')[0];
-      const rid = first && (first.getAttribute('r:id') || first.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id'));
-      const rel = Array.from(xml(rels).getElementsByTagName('Relationship')).find((r) => r.getAttribute('Id') === rid);
+      const first = tags(xml(wb), 'sheet')[0];
+      const rid = first && (first.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || first.getAttribute('r:id') || Array.from(first.attributes).filter((a) => a.localName === 'id').map((a) => a.value)[0]);
+      const rel = tags(xml(rels), 'Relationship').find((r) => r.getAttribute('Id') === rid);
       if (rel) sheetPath = 'xl/' + rel.getAttribute('Target').replace(/^\/?xl\//, '').replace(/^\//, '');
     }
     const sheet = await get(sheetPath);
     if (!sheet) return [];
     const colIdx = (ref) => { let n = 0; for (const ch of ref.replace(/\d+/g, '')) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
-    return Array.from(xml(sheet).getElementsByTagName('row')).map((r) => {
+    return tags(xml(sheet), 'row').map((r) => {
       const out = [];
-      Array.from(r.getElementsByTagName('c')).forEach((c) => {
+      let colNo = -1;
+      tags(r, 'c').forEach((c) => {
         const t = c.getAttribute('t');
-        const v = c.getElementsByTagName('v')[0];
+        const v = tags(c, 'v')[0];
         let val = '';
         if (t === 's') val = shared[Number(v ? v.textContent : 0)] || '';
-        else if (t === 'inlineStr') val = Array.from(c.getElementsByTagName('t')).map((x) => x.textContent).join('');
+        else if (t === 'inlineStr') val = tags(c, 't').map((x) => x.textContent).join('');
         else val = v ? v.textContent : '';
         const s = c.getAttribute('s');
         // числовые даты Excel (серийный номер дня)
         if (t !== 's' && t !== 'inlineStr' && /^\d{5}(\.\d+)?$/.test(val) && s) val = excelSerialToStr(Number(val));
-        out[colIdx(c.getAttribute('r') || 'A1')] = val;
+        colNo = c.getAttribute('r') ? colIdx(c.getAttribute('r')) : colNo + 1;
+        out[colNo] = val;
       });
       for (let i = 0; i < out.length; i++) if (out[i] == null) out[i] = '';
       return out;
@@ -127,6 +131,9 @@
   }
 
   async function readTable(bytes, name) {
+    if (bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0) {
+      throw new Error('это файл старого формата Excel 97–2003 (.xls). Откройте его в Excel/WPS/Google Таблицах и сохраните как «CSV UTF-8» или «Книга Excel (.xlsx)», либо выгрузите из Битрикс24 заново без пересохранения');
+    }
     const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
     if (isZip) return { kind: 'table', rows: await parseXLSX(bytes) };
     const text = decodeText(bytes);
@@ -144,14 +151,23 @@
 
   /* ---------------- Сопоставление колонок ---------------- */
   const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+  // Узнаваемые названия колонок (русский и английский интерфейс Битрикс24)
+  const KNOWN = /(^| )(id|название|наименование|имя|фамилия|отчество|фио|контакт|ответственный|исполнитель|крайний срок|срок|статус|телефон|мобильный|e mail|email|почта|компания|должность|постановщик|задача|name|first name|last name|title|task|responsible|responsible person|deadline|status|phone|company|position|created by)( |$)/;
   function findHeader(rows) {
-    // строка заголовков — первая, где есть хотя бы 2 «узнаваемых» поля
-    const known = /(^| )(id|название|имя|фамилия|ответственный|крайний срок|статус|телефон|e mail|email|компания|должность|постановщик|задача)( |$)/;
-    for (let i = 0; i < Math.min(rows.length, 10); i++) {
-      const hits = rows[i].filter((h) => known.test(norm(h))).length;
-      if (hits >= 2) return i;
+    // строка заголовков — та, где больше всего «узнаваемых» полей (среди первых 15 строк)
+    let best = -1, bestHits = 0;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const hits = rows[i].filter((h) => KNOWN.test(norm(h))).length;
+      if (hits > bestHits) { best = i; bestHits = hits; }
     }
-    return 0;
+    if (best >= 0) return best;
+    // иначе — первая строка, где заполнено больше всего ячеек
+    let maxFilled = 0;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const filled = rows[i].filter((x) => String(x).trim()).length;
+      if (filled > maxFilled) { maxFilled = filled; best = i; }
+    }
+    return Math.max(0, best);
   }
   function colFinder(headers) {
     const H = headers.map(norm);
@@ -170,6 +186,7 @@
   function parseRuDate(s) {
     s = String(s || '').trim();
     if (!s) return null;
+    if (/^\d{5}(\.\d+)?$/.test(s)) s = excelSerialToStr(Number(s)); // дата как число Excel
     let m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})(?:[ T,]+(\d{1,2}):(\d{2})(?::\d{2})?)?/);
     if (m) {
       let y = Number(m[3]); if (y < 100) y += 2000;
@@ -181,44 +198,105 @@
   }
 
   function detectKind(headers) {
-    const H = headers.map(norm).join(' | ');
-    if (/крайний срок|ответственный|постановщик|соисполнител/.test(H)) return 'tasks';
-    if (/фамилия|телефон|e mail|email|должность|обращение/.test(H)) return 'contacts';
-    return '';
+    // «Ответственный» есть и в задачах, и в контактах — считаем очки по характерным колонкам
+    const H = headers.map(norm);
+    const has = (re) => H.some((h) => re.test(h));
+    let t = 0, c = 0;
+    if (has(/^крайний срок$|^deadline$/)) t += 3;
+    if (has(/^постановщик$|соисполнител|^created by$|наблюдател.*задач/)) t += 2;
+    if (has(/^название$|^задача$|^task$|^title$/)) t += 1;
+    if (has(/^фамилия$|^last name$/)) c += 3;
+    if (has(/^отчество$|^обращение$|^second name$/)) c += 2;
+    if (has(/телефон|e mail|почта|^phone/)) c += 1;
+    if (has(/^должность$|^position$|^дата рождения$/)) c += 1;
+    if (!t && !c) return '';
+    return t > c ? 'tasks' : 'contacts';
   }
 
-  /* ---------------- Контакты ---------------- */
-  function mapContacts(rows) {
-    const hi = findHeader(rows);
-    const headers = rows[hi], data = rows.slice(hi + 1);
+  // Поля для ручного сопоставления колонок
+  const FIELDS = {
+    contacts: [['first', 'Имя'], ['last', 'Фамилия'], ['full', 'ФИО целиком (если имя в одной колонке)'], ['photo', 'Фотография (ссылка)'], ['role', 'Должность'], ['birthday', 'Дата рождения'], ['company', 'Компания'], ['contacts', 'Контакты'], ['types', 'Тип контакта'], ['statuses', 'Статус'], ['id', 'ID в Битрикс24'],
+      ['middle', 'Отчество (не используется по умолчанию)'], ['phone', 'Телефон (не используется по умолчанию)'], ['email', 'E-mail (не используется по умолчанию)'], ['comment', 'Комментарий (не используется по умолчанию)']],
+    tasks: [['title', 'Название задачи'], ['desc', 'Описание'], ['assignee', 'Ответственный'], ['due', 'Крайний срок'], ['start', 'Дата начала'], ['end', 'Дата завершения (если нет срока)'], ['status', 'Статус'], ['project', 'Проект'], ['parent', 'ID родительской задачи'], ['crm', 'Связь с CRM'], ['prio', 'Приоритет'], ['id', 'ID в Битрикс24']],
+  };
+  const AUTO = -2; // для телефона и почты: все подходящие колонки
+  function guessMap(kind, headers) {
     const col = colFinder(headers);
-    const cId = col('id');
-    const cLast = col('фамилия'), cFirst = col('имя'), cMid = col('отчество');
-    const cFull = col('контакт', 'фио', 'название', /^(полное )?имя контакта$/);
-    const cCompany = col('компания', /^компания( название)?$/, /^название компании$/, 'company');
-    const cRole = col('должность', 'position');
-    const cComment = col('комментарий', 'комментарии');
-    const cNext = col(/дата следующ/, /следующ.*(контакт|звонок|дело)/);
-    const cType = col('тип контакта', 'тип');
-    const phones = allCols(headers, /телефон|phone/);
-    const mails = allCols(headers, /e mail|email|почта/);
-    const items = data.map((r) => {
-      const name = [cell(r, cLast), cell(r, cFirst), cell(r, cMid)].filter(Boolean).join(' ') || cell(r, cFull);
-      if (!name) return null;
-      const nx = parseRuDate(cell(r, cNext));
+    if (kind === 'tasks') {
       return {
-        bitrixId: cell(r, cId),
-        name,
-        company: cell(r, cCompany),
-        role: cell(r, cRole),
-        phone: Array.from(new Set(phones.flatMap((i) => cell(r, i).split(/[,;\n]+/)).map((x) => x.trim()).filter(Boolean))).join(', '),
-        email: Array.from(new Set(mails.flatMap((i) => cell(r, i).split(/[,;\n]+/)).map((x) => x.trim()).filter(Boolean))).join(', '),
-        comment: cell(r, cComment),
-        nextContact: nx ? nx.date : '',
-        tags: ['Битрикс24'].concat(cell(r, cType) ? [cell(r, cType)] : []),
+        id: col('id', 'id задачи', 'task id'),
+        title: col('название', 'задача', 'название задачи', 'наименование', 'тема', 'title', 'task', 'task name', 'name', /^название/, /^задача/),
+        desc: col('описание', 'description', /^описание/),
+        assignee: col('ответственный', 'исполнитель', 'responsible', 'responsible person', 'assignee', /ответственн/),
+        due: col('крайний срок', 'deadline', 'срок', 'due date', 'срок выполнения', /крайний срок/),
+        start: col(/^начать задачу с$/, /плановое начало|дата начала|^начало$|start date|planned start/),
+        end: col(/^закончить задачу$/, /плановое завершение|дата завершения план|planned (finish|end)|end date/),
+        status: col('статус', 'status', /^статус/),
+        parent: col(/базовая задача|родительская|id родительск|parent/),
+        project: col('проект', 'группа', 'группа проект', /рабочая группа|^проект|project|workgroup/),
+        crm: col('crm', 'элементы crm', /^crm/),
+        prio: col('приоритет', 'важная задача', 'важность', 'priority'),
       };
+    }
+    // В карточку берём только: имя и фамилию, фото, должность, дату рождения, компанию, «Контакты», тип и статус.
+    // Остальные колонки выгрузки (телефоны, реквизиты, UTM, комментарии и т.д.) по умолчанию не используются.
+    const H = headers.map(norm);
+    const last = (re) => { for (let i = H.length - 1; i >= 0; i--) if (re.test(H[i])) return i; return -1; };
+    const first = col('имя', 'first name', 'name');
+    const lastName = col('фамилия', 'last name', 'surname');
+    return {
+      id: col('id', 'id контакта', 'contact id'),
+      first,
+      last: lastName,
+      full: first < 0 && lastName < 0 ? col('контакт', 'фио', 'название', 'полное имя', 'имя контакта', 'contact', 'full name', /^фио/) : -1,
+      photo: col('фотография', 'фото', 'photo'),
+      role: col('должность', 'position', 'job title', 'post'),
+      birthday: col('дата рождения', 'день рождения', 'birthday', 'birthdate'),
+      company: col('компания', 'название компании', 'компания название', 'company', 'company name', /^компания/),
+      contacts: col('контакты', 'contacts'),
+      // в Битрикс24 бывает две колонки «Тип контакта»: стандартная и своя (со списком через запятую) — берём последнюю
+      types: last(/^тип контакта$|^contact type$|^тип$/),
+      statuses: last(/^статус$|^status$/),
+      middle: -1,
+      phone: -1,
+      email: -1,
+      comment: -1,
+    };
+  }
+  const multiCols = (headers, sel, re) => (sel === AUTO ? allCols(headers, re) : sel >= 0 ? [sel] : []);
+  const uniqJoin = (row, cols) => Array.from(new Set(cols.flatMap((i) => cell(row, i).split(/[,;\n]+/)).map((x) => x.trim()).filter(Boolean))).join(', ');
+
+  /* ---------------- Контакты ---------------- */
+  function mapContacts(rows, hi, map) {
+    if (hi == null) hi = findHeader(rows);
+    const headers = rows[hi] || [], data = rows.slice(hi + 1);
+    const m = map || guessMap('contacts', headers);
+    const phones = multiCols(headers, m.phone, /телефон|мобильн|phone/);
+    const mails = multiCols(headers, m.email, /e mail|email|почта/);
+    const list = (v) => Array.from(new Set(String(v || '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean)));
+    const items = data.map((r) => {
+      // как в Битрикс24: «Имя Фамилия»
+      const name = [cell(r, m.first), cell(r, m.middle), cell(r, m.last)].filter(Boolean).join(' ').replace(/\s+/g, ' ') || cell(r, m.full);
+      if (!name) return null;
+      const bd = parseRuDate(cell(r, m.birthday));
+      const photo = cell(r, m.photo);
+      const it = {
+        bitrixId: cell(r, m.id),
+        name,
+        company: cell(r, m.company),
+        role: cell(r, m.role),
+        photo: /^https?:\/\//i.test(photo) ? photo : '',
+        birthday: bd ? bd.date : '',
+        contacts: cell(r, m.contacts).replace(/\s*\n\s*/g, ', '),
+        types: list(cell(r, m.types)),
+        statuses: list(cell(r, m.statuses)),
+      };
+      if (phones.length) it.phone = uniqJoin(r, phones);
+      if (mails.length) it.email = uniqJoin(r, mails);
+      if (m.comment >= 0) it.comment = cell(r, m.comment);
+      return it;
     }).filter(Boolean);
-    return { items, headers, found: { 'Имя': cFirst >= 0 || cFull >= 0, 'Фамилия': cLast >= 0, 'Компания': cCompany >= 0, 'Телефоны': phones.length > 0, 'E-mail': mails.length > 0, 'ID': cId >= 0 } };
+    return { items, headers, hi, map: m, found: { 'Имя': m.first >= 0 || m.full >= 0, 'Фамилия': m.last >= 0, 'Фото': m.photo >= 0, 'Должность': m.role >= 0, 'Дата рождения': m.birthday >= 0, 'Компания': m.company >= 0, 'Контакты': m.contacts >= 0, 'Тип контакта': m.types >= 0, 'Статус': m.statuses >= 0 } };
   }
 
   function applyContacts(items) {
@@ -230,18 +308,22 @@
       if (c) {
         // обновляем данные из Битрикса, локальные пометки (следующий контакт, заметки) не трогаем
         // полное имя не заменяем укороченным (например, без отчества)
-        if (it.name && !norm(c.name).startsWith(norm(it.name))) c.name = it.name;
-        ['company', 'role', 'phone', 'email'].forEach((k) => { if (it[k]) c[k] = it[k]; });
+        if (it.name) c.name = it.name;
+        ['company', 'role', 'phone', 'email', 'photo', 'birthday', 'contacts'].forEach((k) => { if (it[k]) c[k] = it[k]; });
+        // тип и статус ведутся в Битрикс24 — берём оттуда, если в выгрузке они заполнены
+        if (it.types.length) c.types = it.types;
+        if (it.statuses.length) c.statuses = it.statuses;
         if (it.comment && !c.comment) c.comment = it.comment;
-        if (it.nextContact && !c.nextContact) c.nextContact = it.nextContact;
         if (it.bitrixId) c.bitrixId = it.bitrixId;
-        c.tags = Array.from(new Set((c.tags || []).concat(it.tags)));
         c.updatedAt = now;
         updated++;
       } else {
-        D.contacts.push(Object.assign({ id: uid('c'), remind: true, createdAt: now, updatedAt: now, source: 'bitrix24' }, it));
+        D.contacts.push(Object.assign({ id: uid('c'), remind: true, tags: [], createdAt: now, updatedAt: now, source: 'bitrix24' }, it));
         added++;
       }
+      // новые варианты типа/статуса добавляем в списки выбора
+      it.types.forEach((x) => { if (!D.settings.contactTypes.includes(x)) D.settings.contactTypes.push(x); });
+      it.statuses.forEach((x) => { if (!D.settings.contactStatuses.includes(x)) D.settings.contactStatuses.push(x); });
     }
     return { added, updated };
   }
@@ -256,44 +338,32 @@
     if (/заверш|выполнена|закрыт|done|completed/.test(v)) return 'done';
     return 'todo';
   }
-  function mapTasks(rows) {
-    const hi = findHeader(rows);
-    const headers = rows[hi], data = rows.slice(hi + 1);
-    const col = colFinder(headers);
-    const cId = col('id');
-    const cTitle = col('название', 'задача', 'название задачи', 'title');
-    const cDesc = col('описание', 'description');
-    const cResp = col('ответственный', 'исполнитель', 'responsible');
-    const cDue = col('крайний срок', 'deadline', 'срок');
-    const cStart = col(/^начать задачу с$/, /плановое начало|дата начала|начало/);
-    const cEnd = col(/^закончить задачу$/, /плановое завершение|дата завершения план/);
-    const cStatus = col('статус', 'status');
-    const cParent = col(/базовая задача|родительская|id родительск|parent/);
-    const cProject = col('проект', 'группа', 'группа проект', /рабочая группа/);
-    const cCrm = col('crm', 'элементы crm', /^crm/);
-    const cPrio = col('приоритет', 'важная задача', 'важность');
+  function mapTasks(rows, hi, map) {
+    if (hi == null) hi = findHeader(rows);
+    const headers = rows[hi] || [], data = rows.slice(hi + 1);
+    const m = map || guessMap('tasks', headers);
     const items = data.map((r) => {
-      const title = cell(r, cTitle);
+      const title = cell(r, m.title);
       if (!title) return null;
-      const due = parseRuDate(cell(r, cDue)) || parseRuDate(cell(r, cEnd));
-      const start = parseRuDate(cell(r, cStart));
-      const project = cell(r, cProject);
-      const desc = cell(r, cDesc);
+      const due = parseRuDate(cell(r, m.due)) || parseRuDate(cell(r, m.end));
+      const start = parseRuDate(cell(r, m.start));
+      const project = cell(r, m.project);
+      const desc = cell(r, m.desc);
       return {
-        bitrixId: cell(r, cId),
+        bitrixId: cell(r, m.id),
         title,
         desc: [desc, project ? 'Проект: ' + project : ''].filter(Boolean).join('\n\n'),
-        assignee: cell(r, cResp).split(/[,;\n]/)[0].trim(),
+        assignee: cell(r, m.assignee).split(/[,;\n]/)[0].trim(),
         due: due ? due.date : '',
         dueTime: due && due.time && due.time !== '00:00' ? due.time : '',
         start: start ? start.date : '',
-        status: mapStatus(cell(r, cStatus)),
-        important: /высок|да|yes|important/.test(norm(cell(r, cPrio))),
-        bitrixParent: cell(r, cParent).replace(/[^\d]/g, ''),
-        crmRaw: cell(r, cCrm),
+        status: mapStatus(cell(r, m.status)),
+        important: /высок|да|yes|important|high/.test(norm(cell(r, m.prio))),
+        bitrixParent: cell(r, m.parent).replace(/[^\d]/g, ''),
+        crmRaw: cell(r, m.crm),
       };
     }).filter(Boolean);
-    return { items, headers, found: { 'Название': cTitle >= 0, 'Ответственный': cResp >= 0, 'Крайний срок': cDue >= 0, 'Статус': cStatus >= 0, 'ID': cId >= 0, 'Связь с CRM': cCrm >= 0 } };
+    return { items, headers, hi, map: m, found: { 'Название': m.title >= 0, 'Ответственный': m.assignee >= 0, 'Крайний срок': m.due >= 0, 'Статус': m.status >= 0, 'ID': m.id >= 0, 'Связь с CRM': m.crm >= 0 } };
   }
 
   function linkCrm(raw) {
@@ -425,31 +495,113 @@
   const KIND_NAMES = { contacts: 'CRM-контакты', tasks: 'Задачи', events: 'События календаря' };
   let pending = null;
 
+  const hasKey = (kind, m) => (kind === 'tasks' ? m.title >= 0 : (m.first >= 0 || m.last >= 0 || m.full >= 0));
+  const runMap = (kind, rows, hi, map) => (kind === 'tasks' ? mapTasks(rows, hi, map) : mapContacts(rows, hi, map));
+
   async function handleFile(kind, name, bytes) {
     let parsed;
-    try { parsed = await readTable(bytes, name); } catch (e) { toast('Не удалось прочитать файл: ' + (e.message || e)); return; }
-    let result;
-    if (parsed.kind === 'ics') {
-      result = { kind: 'events', items: parseICS(parsed.text), found: {} };
-    } else {
-      const rows = parsed.rows;
-      if (!rows.length) { toast('В файле не найдено строк'); return; }
-      const hdr = rows[findHeader(rows)] || [];
-      const detected = detectKind(hdr);
-      const k = detected || (kind === 'events' ? '' : kind) || 'contacts';
-      if (kind && detected && kind !== detected) toast('Похоже, это файл с данными «' + KIND_NAMES[detected] + '» — импортирую как их');
-      const m = k === 'tasks' ? mapTasks(rows) : mapContacts(rows);
-      result = { kind: k, items: m.items, found: m.found, headers: m.headers };
+    try { parsed = await readTable(bytes, name); } catch (e) {
+      modal(`<h3>Не удалось прочитать файл</h3><div class="sub">«${esc(name || '')}»: ${esc(e.message || String(e))}.</div><div class="form-actions mt"><button class="btn" data-a="modal-close">Понятно</button></div>`);
+      return;
     }
-    if (!result.items.length) { toast('Не удалось найти записи для импорта. Проверьте, что это выгрузка из Битрикс24.'); return; }
-    pending = result;
+    if (parsed.kind === 'ics') {
+      const items = parseICS(parsed.text);
+      if (!items.length) { toast('В файле календаря не найдено событий'); return; }
+      pending = { kind: 'events', items, found: {} };
+      showPreview(name);
+      return;
+    }
+    const rows = parsed.rows;
+    if (!rows.length || !rows.some((r) => r.length > 0)) { toast('Файл пустой или не похож на таблицу (' + (name || 'без имени') + ')'); return; }
+    const hdr = rows[findHeader(rows)] || [];
+    const detected = detectKind(hdr);
+    const k = detected || (kind === 'events' ? '' : kind) || 'contacts';
+    if (kind && kind !== 'events' && detected && kind !== detected) toast('Похоже, это файл с данными «' + KIND_NAMES[detected] + '» — импортирую как их');
+    const m = runMap(k, rows);
+    const table = { rows, name };
+    if (!m.items.length || !hasKey(k, m.map)) {
+      // Колонки не распознаны — даём выбрать вручную
+      showMapper({ kind: k, rows, hi: m.hi, map: m.map, name, auto: true });
+      return;
+    }
+    pending = { kind: k, items: m.items, found: m.found, table, hi: m.hi, map: m.map };
     showPreview(name);
   }
+
+  /* ---------- Ручное сопоставление колонок ---------- */
+  let mapper = null;
+  const colLetter = (i) => { let s = ''; i++; while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); } return s; };
+  function showMapper(st) { mapper = st; renderMapper(); }
+  function renderMapper() {
+    const st = mapper;
+    const headers = st.rows[st.hi] || [];
+    const width = Math.max(...st.rows.slice(0, 50).map((r) => r.length), headers.length);
+    const label = (i) => `${colLetter(i)}: ${(String(headers[i] || '').trim() || '(без заголовка)').slice(0, 40)}`;
+    const m = runMap(st.kind, st.rows, st.hi, st.map);
+    st.items = m.items;
+    const opt = (v, t, sel) => `<option value="${v}"${sel ? ' selected' : ''}>${esc(t)}</option>`;
+    const fields = FIELDS[st.kind].map(([key, title]) => {
+      const cur = st.map[key] == null ? -1 : st.map[key];
+      const multi = key === 'phone' || key === 'email';
+      let o = opt(-1, '— не использовать —', cur === -1);
+      if (multi) o += opt(AUTO, 'все подходящие колонки', cur === AUTO);
+      for (let i = 0; i < width; i++) o += opt(i, label(i), cur === i);
+      return `<div class="field"><label>${esc(title)}</label><select data-bxm="f:${key}">${o}</select></div>`;
+    }).join('');
+    let hiOpts = '';
+    for (let i = 0; i < Math.min(st.rows.length, 15); i++) {
+      hiOpts += opt(i, `Строка ${i + 1}: ${st.rows[i].filter((x) => String(x).trim()).slice(0, 4).join(' | ').slice(0, 60) || '(пусто)'}`, i === st.hi);
+    }
+    const first = m.items[0];
+    const firstName = first ? (first.name || first.title) : '';
+    const sampleRow = (st.rows[st.hi + 1] || []).slice(0, 8).map((x, i) => `${colLetter(i)}: ${String(x).slice(0, 30)}`).join(' · ');
+    modal(`<h3>Укажите колонки</h3>
+      <div class="sub">${st.auto ? 'Не удалось автоматически распознать колонки в файле' : 'Файл'} «${esc(st.name || '')}». Выберите, где что лежит — это займёт минуту.</div>
+      <div class="form mt">
+        <div class="field"><label>Что импортируем</label><select data-bxm="kind">${opt('contacts', 'CRM-контакты', st.kind === 'contacts')}${opt('tasks', 'Задачи', st.kind === 'tasks')}</select></div>
+        <div class="field"><label>Строка с заголовками</label><select data-bxm="hi">${hiOpts}</select></div>
+        ${sampleRow ? `<div class="sub">Первая строка данных: ${esc(sampleRow)}</div>` : ''}
+        ${fields}
+      </div>
+      <div class="sub mt">Найдено записей: <b>${m.items.length}</b>${firstName ? ` · первая: «${esc(firstName)}»` : ''}</div>
+      ${!m.items.length ? `<div class="sub" style="color:var(--danger)">Выберите колонку ${st.kind === 'tasks' ? '«Название задачи»' : '«Имя», «Фамилия» или «ФИО целиком»'}.</div>` : ''}
+      <div class="form-actions mt"><button class="btn primary" data-a="bx-map-apply"${m.items.length ? '' : ' disabled'}>Продолжить</button><button class="btn" data-a="modal-close">Отмена</button></div>`);
+  }
+  document.addEventListener('change', (ev) => {
+    const el = ev.target.closest('[data-bxm]');
+    if (!el || !mapper) return;
+    const k = el.dataset.bxm;
+    if (k === 'kind' || k === 'hi') {
+      if (k === 'kind') mapper.kind = el.value; else mapper.hi = Number(el.value);
+      mapper.map = guessMap(mapper.kind, mapper.rows[mapper.hi] || []);
+    } else if (k.startsWith('f:')) {
+      mapper.map = Object.assign({}, mapper.map, { [k.slice(2)]: Number(el.value) });
+    }
+    const box = document.querySelector('#modal .modal-box');
+    const top = box ? box.scrollTop : 0;
+    renderMapper();
+    const box2 = document.querySelector('#modal .modal-box');
+    if (box2) box2.scrollTop = top;
+  });
+  ACTIONS['bx-map-apply'] = () => {
+    const st = mapper;
+    if (!st) return;
+    const m = runMap(st.kind, st.rows, st.hi, st.map);
+    if (!m.items.length) { toast('Записи не найдены — проверьте выбранные колонки'); return; }
+    pending = { kind: st.kind, items: m.items, found: m.found, table: { rows: st.rows, name: st.name }, hi: st.hi, map: st.map };
+    mapper = null;
+    showPreview(st.name);
+  };
+  ACTIONS['bx-map-open'] = () => {
+    const r = pending;
+    if (!r || !r.table) return;
+    showMapper({ kind: r.kind, rows: r.table.rows, hi: r.hi, map: Object.assign({}, r.map), name: r.table.name, auto: false });
+  };
 
   function showPreview(name) {
     const r = pending;
     const sample = r.items.slice(0, 6).map((it) => {
-      if (r.kind === 'contacts') return `<div class="item"><div class="grow"><div class="t">${esc(it.name)}</div><div class="s">${esc([it.company, it.phone, it.email].filter(Boolean).join(' · '))}</div></div></div>`;
+      if (r.kind === 'contacts') return `<div class="item"><div class="grow"><div class="t">${esc(it.name)}</div><div class="s">${esc([it.role, it.company, it.contacts].filter(Boolean).join(' · '))}</div><div class="s">${[].concat(it.statuses || [], it.types || []).map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div></div></div>`;
       if (r.kind === 'tasks') return `<div class="item"><div class="grow"><div class="t">${esc(it.title)}</div><div class="s">${esc([it.assignee, it.due ? 'до ' + fmtShort(it.due) : '', statusName(it.status), it.bitrixParent ? 'подзадача' : ''].filter(Boolean).join(' · '))}</div></div></div>`;
       return `<div class="item"><div class="grow"><div class="t">${esc(it.title)}</div><div class="s">${esc(fmtShort(it.start) + (it.allDay ? ', весь день' : ' ' + it.start.slice(11, 16)) + (it.location ? ' · ' + it.location : ''))}</div></div></div>`;
     }).join('');
@@ -460,7 +612,7 @@
       <div class="list mt">${sample}</div>
       ${r.items.length > 6 ? `<div class="sub mt">…и ещё ${r.items.length - 6}</div>` : ''}
       <div class="sub mt">Записи, которые уже есть в приложении (по ID Битрикс24 или названию), будут обновлены, а не продублированы. Ваши пометки — будильники, заметки, связи — сохранятся. Перед импортом создаётся автокопия.</div>
-      <div class="form-actions mt"><button class="btn primary" data-a="bx-apply">Импортировать</button><button class="btn" data-a="modal-close">Отмена</button></div>`);
+      <div class="form-actions mt"><button class="btn primary" data-a="bx-apply">Импортировать</button>${r.table ? '<button class="btn" data-a="bx-map-open">Настроить колонки</button>' : ''}<button class="btn" data-a="modal-close">Отмена</button></div>`);
   }
 
   function applyPending() {
@@ -488,7 +640,7 @@
     };
     inp.click();
   }
-  window.__bxImport = { handleFile, parseCSV, parseICS, mapTasks, mapContacts, readTable };
+  window.__bxImport = { handleFile, parseCSV, parseICS, mapTasks, mapContacts, readTable, guessMap, findHeader };
 
   // Действия
   ACTIONS['bx-import'] = (el) => pickFile(el.dataset.id);

@@ -103,6 +103,8 @@ function emptyData() {
       kanbanGroup: 'people',
       linksGroup: 'parents',
       ganttScale: 'day',
+      contactTypes: ['Инвестор', 'Ангел', 'Партнер', 'Инфлюенсер', 'Издатель', 'Разработчик', 'Медиа', 'Музыка', 'Фонд', 'ГОС', 'Образование', 'Сотрудник'],
+      contactStatuses: ['Надо освежить', 'Работаем', 'Диалог', 'Архив молчаливый', 'Архив жесткий отказ', 'Поиск денег прямо сейчас'],
     },
     tasks: [],
     contacts: [],
@@ -134,7 +136,8 @@ function migrate(raw) {
   });
   d.events.forEach((e) => { e.crmIds = e.crmIds || []; if (e.remind == null) e.remind = [d.settings.defaultRemind]; });
   d.notes.forEach((n) => { n.crmIds = n.crmIds || []; });
-  d.contacts.forEach((c) => { c.tags = c.tags || []; });
+  for (const k of ['contactTypes', 'contactStatuses']) if (!Array.isArray(d.settings[k])) d.settings[k] = def.settings[k].slice();
+  d.contacts.forEach((c) => { c.tags = c.tags || []; c.types = c.types || []; c.statuses = c.statuses || []; });
   if (d.schema > SCHEMA) console.warn('Данные из более новой версии приложения: неизвестные поля сохранены как есть.');
   else d.schema = SCHEMA;
   return d;
@@ -293,6 +296,8 @@ const ui = {
   homeFilter: null,     // 'overdueTasks' | 'todayTasks' | 'overdueCrm' | 'todayCrmEvents'
   crmQuery: '',
   crmFilter: 'all',
+  crmType: '',
+  crmStatus: '',
   notesContact: 'all',
   notesQuery: '',
   taskQuery: '',
@@ -474,14 +479,59 @@ function taskItem(t) {
     </div>
   </div>`;
 }
+// Фото контакта (ссылка из Битрикс24) или инициалы, если фото нет / не загрузилось
+function avatar(c, size) {
+  const st = size ? `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.36)}px;` : '';
+  const ini = esc(initials(c.name));
+  if (c.photo && /^https?:\/\//.test(c.photo)) {
+    return `<div class="avatar" style="${st}background:${colorFor(c.name)}"><img src="${esc(c.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()"><span>${ini}</span></div>`;
+  }
+  return `<div class="avatar" style="${st}background:${colorFor(c.name)}"><span>${ini}</span></div>`;
+}
+// Поле «Контакты»: телефоны — ссылкой на звонок, @ник — на Telegram, ссылки — кликабельны
+function contactsHtml(text) {
+  return String(text || '').split(/(,\s*|\n)/).map((part) => {
+    const x = part.trim();
+    if (!x || /^,/.test(part)) return esc(part);
+    if (/^https?:\/\/\S+$/.test(x)) return `<a href="${esc(x)}" target="_blank" rel="noopener">${esc(x)}</a>`;
+    if (/^@[A-Za-z0-9_]{3,}$/.test(x)) return `<a href="https://t.me/${esc(x.slice(1))}" target="_blank" rel="noopener">${esc(x)}</a>`;
+    const digits = x.replace(/[^\d+]/g, '');
+    if (/^[+\d][\d\s()\-]{6,}$/.test(x) && digits.replace('+', '').length >= 10) return `<a href="tel:${esc(/^\+/.test(digits) ? digits : (digits.length === 11 ? '+' + digits : digits))}">${esc(x)}</a>`;
+    return esc(part);
+  }).join('');
+}
+function statusChips(c, max) {
+  const st = (c.statuses || []).map((x) => `<span class="chip ${/работаем|поиск денег/i.test(x) ? 'green' : /архив/i.test(x) ? '' : /освежить/i.test(x) ? 'amber' : 'blue'}">${esc(x)}</span>`);
+  const ty = (c.types || []).map((x) => `<span class="chip violet">${esc(x)}</span>`);
+  const all = st.concat(ty);
+  return all.slice(0, max || 99).join('') + (max && all.length > max ? `<span class="chip">+${all.length - max}</span>` : '');
+}
+// Выпадающий список с множественным выбором (для типа и статуса контакта)
+function multiSelect(name, options, selected, placeholder) {
+  const sel = new Set(selected || []);
+  const opts = options.concat((selected || []).filter((x) => !options.includes(x)));
+  return `<div class="msel" data-msel="${name}">
+    <button type="button" class="msel-btn" data-a="msel-toggle">${sel.size ? Array.from(sel).map((x) => `<span class="chip blue">${esc(x)}</span>`).join('') : `<span class="sub">${esc(placeholder || 'Не выбрано')}</span>`}<span class="msel-caret">▾</span></button>
+    <div class="msel-pop" hidden>
+      ${opts.map((o) => `<label class="msel-opt"><input type="checkbox" name="${name}" value="${esc(o)}" ${sel.has(o) ? 'checked' : ''}><span>${esc(o)}</span></label>`).join('')}
+      <div class="msel-add"><input type="text" placeholder="Новый вариант" data-msel-new><button type="button" class="btn sm" data-a="msel-add">Добавить</button></div>
+    </div>
+  </div>`;
+}
+function mselRefresh(box) {
+  const vals = $$('input[type=checkbox]:checked', box).map((x) => x.value);
+  const btn = $('.msel-btn', box);
+  btn.innerHTML = (vals.length ? vals.map((x) => `<span class="chip blue">${esc(x)}</span>`).join('') : '<span class="sub">Не выбрано</span>') + '<span class="msel-caret">▾</span>';
+}
+
 function contactItem(c) {
   const open = tasksOfContact(c.id).filter((t) => !isDone(t)).length;
   const od = contactOverdue(c);
   return `<div class="item" data-a="open" data-type="contact" data-id="${c.id}">
-    <div class="avatar" style="background:${colorFor(c.name)}">${esc(initials(c.name))}</div>
+    ${avatar(c)}
     <div class="grow">
       <div class="t">${esc(c.name)}</div>
-      <div class="s">${c.company ? `<span>${esc(c.company)}</span>` : ''}${c.nextContact ? `<span class="chip ${od ? 'red' : c.nextContact === today() ? 'amber' : ''}">${icon('phone')}${esc(fmtDate(c.nextContact))}</span>` : ''}${open ? `<span class="chip blue">${open} ${plural(open, 'задача', 'задачи', 'задач')}</span>` : ''}</div>
+      <div class="s">${c.company ? `<span>${esc(c.company)}</span>` : ''}${statusChips({ statuses: c.statuses }, 2)}${c.nextContact ? `<span class="chip ${od ? 'red' : c.nextContact === today() ? 'amber' : ''}">${icon('phone')}${esc(fmtDate(c.nextContact))}</span>` : ''}${open ? `<span class="chip blue">${open} ${plural(open, 'задача', 'задачи', 'задач')}</span>` : ''}</div>
     </div>
   </div>`;
 }
@@ -797,7 +847,9 @@ function drawLinks() {
 SCREENS.crm = function () {
   const q = ui.crmQuery.trim().toLowerCase();
   const t = today();
-  let list = D.contacts.filter((c) => !q || [c.name, c.company, c.role, c.phone, c.email, (c.tags || []).join(' ')].join(' ').toLowerCase().includes(q));
+  let list = D.contacts.filter((c) => !q || [c.name, c.company, c.role, c.phone, c.email, c.contacts, (c.tags || []).join(' '), (c.types || []).join(' '), (c.statuses || []).join(' ')].join(' ').toLowerCase().includes(q));
+  if (ui.crmType) list = list.filter((c) => (c.types || []).includes(ui.crmType));
+  if (ui.crmStatus) list = list.filter((c) => (c.statuses || []).includes(ui.crmStatus));
   if (ui.crmFilter === 'overdue') list = list.filter(contactOverdue);
   if (ui.crmFilter === 'today') list = list.filter((c) => c.nextContact === t);
   if (ui.crmFilter === 'tasks') list = list.filter((c) => tasksOfContact(c.id).some((x) => !isDone(x)));
@@ -809,7 +861,11 @@ SCREENS.crm = function () {
   const f = [['all', 'Все'], ['overdue', 'Просрочены'], ['today', 'Сегодня'], ['tasks', 'С задачами']];
   return `<div class="head"><h1>CRM</h1><button class="btn primary" data-a="new" data-type="contact">${icon('plus')}<span>Контакт</span></button></div>
     <input class="search" placeholder="Поиск: имя, компания, телефон, тег" data-input="crmQuery" value="${esc(ui.crmQuery)}">
-    <div class="seg mt" style="margin-bottom:12px">${f.map(([k, n]) => `<button class="${ui.crmFilter === k ? 'on' : ''}" data-a="crm-filter" data-id="${k}">${n}</button>`).join('')}</div>
+    <div class="seg mt">${f.map(([k, n]) => `<button class="${ui.crmFilter === k ? 'on' : ''}" data-a="crm-filter" data-id="${k}">${n}</button>`).join('')}</div>
+    <div class="crm-sel mt" style="margin-bottom:12px">
+      <select data-change="crmType"><option value="">Тип: все</option>${D.settings.contactTypes.map((x) => `<option ${ui.crmType === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <select data-change="crmStatus"><option value="">Статус: все</option>${D.settings.contactStatuses.map((x) => `<option ${ui.crmStatus === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+    </div>
     ${listOf(list, contactItem, D.contacts.length ? 'Ничего не найдено' : 'Карточек пока нет. Добавьте первый контакт.')}`;
 };
 
@@ -1148,8 +1204,16 @@ SHEETS.contact = function ({ id }) {
   const nts = notesOfContact(c.id).sort((a, b) => a.discussed - b.discussed);
   const od = contactOverdue(c);
   return sheetHead('', `<button class="icon-btn" data-a="edit" data-type="contact" data-id="${c.id}" aria-label="Изменить">${icon('edit')}</button>`)
-    + `<div class="row" style="margin:-6px 0 14px"><div class="avatar" style="width:56px;height:56px;font-size:20px;background:${colorFor(c.name)}">${esc(initials(c.name))}</div>
+    + `<div class="row" style="margin:-6px 0 14px">${avatar(c, c.photo ? 96 : 56)}
       <div class="grow"><h2 style="margin:0">${esc(c.name)}</h2><div class="sub">${esc([c.role, c.company].filter(Boolean).join(' · '))}</div></div></div>
+    <div class="card"><div class="section-title" style="margin-top:0">О контакте</div><dl class="kv">
+      ${c.role ? `<dt>Должность</dt><dd>${esc(c.role)}</dd>` : ''}
+      ${c.birthday ? `<dt>Дата рождения</dt><dd>${esc(c.birthday.split('-').reverse().join('.'))}</dd>` : ''}
+      ${c.company ? `<dt>Компания</dt><dd>${esc(c.company)}</dd>` : ''}
+      ${c.contacts ? `<dt>Контакты</dt><dd>${contactsHtml(c.contacts)}</dd>` : ''}
+      <dt>Тип контакта</dt><dd>${(c.types || []).length ? c.types.map((x) => `<span class="chip violet">${esc(x)}</span>`).join(' ') : '—'}</dd>
+      <dt>Статус</dt><dd>${(c.statuses || []).length ? statusChips({ statuses: c.statuses }) : '—'}</dd>
+    </dl></div>
     <div class="card"><dl class="kv">
       ${c.phone ? `<dt>Телефон</dt><dd><a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">${esc(c.phone)}</a></dd>` : ''}
       ${c.email ? `<dt>Почта</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
@@ -1175,9 +1239,14 @@ SHEETS.contactForm = function ({ id, preset }) {
   return sheetHead(id ? 'Изменить контакт' : 'Новый контакт') + `<form class="form" data-form="contact" data-id="${id || ''}">
     <div class="field"><label>Имя</label><input name="name" required value="${esc(c.name)}" placeholder="Имя и фамилия"></div>
     <div class="field-row">
-      <div class="field"><label>Компания</label><input name="company" value="${esc(c.company || '')}"></div>
-      <div class="field"><label>Должность / роль</label><input name="role" value="${esc(c.role || '')}"></div>
+      <div class="field"><label>Должность</label><input name="role" value="${esc(c.role || '')}"></div>
+      <div class="field"><label>Дата рождения</label><input type="date" name="birthday" value="${esc(c.birthday || '')}"></div>
     </div>
+    <div class="field"><label>Компания</label><input name="company" value="${esc(c.company || '')}"></div>
+    <div class="field"><label>Контакты (телефоны, @telegram, через запятую)</label><input name="contacts" value="${esc(c.contacts || '')}"></div>
+    <div class="field"><label>Тип контакта</label>${multiSelect('types', D.settings.contactTypes, c.types, 'Выберите тип')}</div>
+    <div class="field"><label>Статус</label>${multiSelect('statuses', D.settings.contactStatuses, c.statuses, 'Выберите статус')}</div>
+    <div class="field"><label>Фото (ссылка на картинку)</label><input type="url" name="photo" value="${esc(c.photo || '')}" placeholder="https://…"></div>
     <div class="field-row">
       <div class="field"><label>Телефон</label><input type="tel" name="phone" value="${esc(c.phone || '')}"></div>
       <div class="field"><label>Почта</label><input type="email" name="email" value="${esc(c.email || '')}"></div>
@@ -1345,7 +1414,8 @@ function submitForm(form) {
     }
     finishForm('task', saved.id, !id);
   } else if (kind === 'contact') {
-    const data = { name: g('name'), company: g('company'), role: g('role'), phone: g('phone'), email: g('email'), nextContact: g('nextContact'), remind: f.get('remind') === 'on', tags: g('tags').split(',').map((x) => x.trim()).filter(Boolean), comment: g('comment') };
+    const data = { name: g('name'), company: g('company'), role: g('role'), phone: g('phone'), email: g('email'), nextContact: g('nextContact'), remind: f.get('remind') === 'on', tags: g('tags').split(',').map((x) => x.trim()).filter(Boolean), comment: g('comment'),
+      birthday: g('birthday'), contacts: g('contacts'), photo: g('photo'), types: f.getAll('types'), statuses: f.getAll('statuses') };
     if (id) { Object.assign(contact(id), data, { updatedAt: now }); saved = contact(id); }
     else { saved = Object.assign({ id: uid('c'), createdAt: now, updatedAt: now }, data); D.contacts.push(saved); }
     finishForm('contact', saved.id, !id);
@@ -1410,6 +1480,26 @@ const ACTIONS = {
   'confirm-yes': () => { const f = ui.onConfirm; ui.onConfirm = null; modal(null); if (f) f(); },
   'home-filter': (el) => { ui.homeFilter = el.dataset.id && ui.homeFilter !== el.dataset.id ? el.dataset.id : null; render(); },
   'crm-filter': (el) => { ui.crmFilter = el.dataset.id; render(); },
+  'msel-toggle': (el) => {
+    const pop = $('.msel-pop', el.closest('.msel'));
+    const open = pop.hidden;
+    $$('.msel-pop').forEach((p) => { p.hidden = true; });
+    pop.hidden = !open;
+  },
+  'msel-add': (el) => {
+    const box = el.closest('.msel');
+    const inp = $('[data-msel-new]', box);
+    const v = inp.value.trim();
+    if (!v) return;
+    const key = box.dataset.msel === 'types' ? 'contactTypes' : 'contactStatuses';
+    if (!D.settings[key].includes(v)) D.settings[key].push(v);
+    const name = box.dataset.msel;
+    const ex = $$('input[type=checkbox]', box).find((x) => x.value === v);
+    if (ex) ex.checked = true;
+    else inp.parentElement.insertAdjacentHTML('beforebegin', `<label class="msel-opt"><input type="checkbox" name="${name}" value="${esc(v)}" checked><span>${esc(v)}</span></label>`);
+    inp.value = '';
+    mselRefresh(box);
+  },
   set: (el) => { D.settings[el.dataset.key] = el.dataset.val; save(); render(); },
   'set-bool': (el) => { D.settings[el.dataset.key] = el.checked; save(); if (el.dataset.key === 'showDeviceEvents') loadDeviceEvents(); render(); },
   'toggle-done': (el) => { ui.showDone = el.checked; render(); },
@@ -1568,6 +1658,16 @@ const ACTIONS = {
   }, 'Удалить всё'),
 };
 
+document.addEventListener('click', (ev) => {
+  if (!ev.target.closest('.msel')) $$('.msel-pop').forEach((p) => { p.hidden = true; });
+}, true);
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('[data-msel-new]')) { ev.preventDefault(); ACTIONS['msel-add'](ev.target); }
+});
+document.addEventListener('change', (ev) => {
+  const box = ev.target.closest && ev.target.closest('.msel');
+  if (box && ev.target.type === 'checkbox') mselRefresh(box);
+});
 document.addEventListener('click', (ev) => {
   if (ev.target.closest('#modal') && ev.target.id === 'modal') { ACTIONS['modal-close'](); return; }
   const el = ev.target.closest('[data-a]');
