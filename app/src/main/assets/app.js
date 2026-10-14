@@ -1207,16 +1207,16 @@ SHEETS.contact = function ({ id }) {
     + `<div class="row" style="margin:-6px 0 14px">${avatar(c, c.photo ? 96 : 56)}
       <div class="grow"><h2 style="margin:0">${esc(c.name)}</h2><div class="sub">${esc([c.role, c.company].filter(Boolean).join(' · '))}</div></div></div>
     <div class="card"><div class="section-title" style="margin-top:0">О контакте</div><dl class="kv">
+      ${c.company ? `<dt>Компания</dt><dd>${esc(c.company)}</dd>` : ''}
       ${c.role ? `<dt>Должность</dt><dd>${esc(c.role)}</dd>` : ''}
       ${c.birthday ? `<dt>Дата рождения</dt><dd>${esc(c.birthday.split('-').reverse().join('.'))}</dd>` : ''}
-      ${c.company ? `<dt>Компания</dt><dd>${esc(c.company)}</dd>` : ''}
-      ${c.contacts ? `<dt>Контакты</dt><dd>${contactsHtml(c.contacts)}</dd>` : ''}
       <dt>Тип контакта</dt><dd>${(c.types || []).length ? c.types.map((x) => `<span class="chip violet">${esc(x)}</span>`).join(' ') : '—'}</dd>
       <dt>Статус</dt><dd>${(c.statuses || []).length ? statusChips({ statuses: c.statuses }) : '—'}</dd>
     </dl></div>
     <div class="card"><dl class="kv">
       ${c.phone ? `<dt>Телефон</dt><dd><a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">${esc(c.phone)}</a></dd>` : ''}
       ${c.email ? `<dt>Почта</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
+      ${c.contacts ? `<dt>Соц. сети и другие контакты</dt><dd>${contactsHtml(c.contacts)}</dd>` : ''}
       <dt>Связаться</dt><dd>${c.nextContact ? `<span class="chip ${od ? 'red' : c.nextContact === today() ? 'amber' : 'blue'}">${esc(fmtDate(c.nextContact, true))}${od ? ' · просрочено' : ''}</span>` : '—'}</dd>
       ${c.lastContact ? `<dt>Был контакт</dt><dd>${esc(fmtDate(c.lastContact))}</dd>` : ''}
       ${c.tags && c.tags.length ? `<dt>Теги</dt><dd>${c.tags.map((x) => `<span class="chip">${esc(x)}</span>`).join(' ')}</dd>` : ''}
@@ -1238,12 +1238,9 @@ SHEETS.contactForm = function ({ id, preset }) {
   const c = id ? contact(id) : Object.assign({ name: '', company: '', role: '', phone: '', email: '', tags: [], nextContact: '', remind: true, comment: '' }, preset || {});
   return sheetHead(id ? 'Изменить контакт' : 'Новый контакт') + `<form class="form" data-form="contact" data-id="${id || ''}">
     <div class="field"><label>Имя</label><input name="name" required value="${esc(c.name)}" placeholder="Имя и фамилия"></div>
-    <div class="field-row">
-      <div class="field"><label>Должность</label><input name="role" value="${esc(c.role || '')}"></div>
-      <div class="field"><label>Дата рождения</label><input type="date" name="birthday" value="${esc(c.birthday || '')}"></div>
-    </div>
+    <div class="field"><label>Дата рождения</label><input type="date" name="birthday" value="${esc(c.birthday || '')}"></div>
     <div class="field"><label>Компания</label><input name="company" value="${esc(c.company || '')}"></div>
-    <div class="field"><label>Контакты (телефоны, @telegram, через запятую)</label><input name="contacts" value="${esc(c.contacts || '')}"></div>
+    <div class="field"><label>Должность</label><input name="role" value="${esc(c.role || '')}"></div>
     <div class="field"><label>Тип контакта</label>${multiSelect('types', D.settings.contactTypes, c.types, 'Выберите тип')}</div>
     <div class="field"><label>Статус</label>${multiSelect('statuses', D.settings.contactStatuses, c.statuses, 'Выберите статус')}</div>
     <div class="field"><label>Фото (ссылка на картинку)</label><input type="url" name="photo" value="${esc(c.photo || '')}" placeholder="https://…"></div>
@@ -1251,6 +1248,7 @@ SHEETS.contactForm = function ({ id, preset }) {
       <div class="field"><label>Телефон</label><input type="tel" name="phone" value="${esc(c.phone || '')}"></div>
       <div class="field"><label>Почта</label><input type="email" name="email" value="${esc(c.email || '')}"></div>
     </div>
+    <div class="field"><label>Соц. сети и другие контакты</label><input name="contacts" value="${esc(c.contacts || '')}"></div>
     <div class="field"><label>Следующий контакт (после этой даты карточка — просроченная)</label><input type="date" name="nextContact" value="${esc(c.nextContact || '')}"></div>
     <label class="toggle"><input type="checkbox" name="remind" ${c.remind !== false ? 'checked' : ''}><span class="grow">Напомнить в день контакта</span></label>
     <div class="field"><label>Теги (через запятую)</label><input name="tags" value="${esc((c.tags || []).join(', '))}" placeholder="клиент, партнёр"></div>
