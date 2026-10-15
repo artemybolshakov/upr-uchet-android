@@ -260,6 +260,7 @@ public final class WebServer {
                             return;
                         }
                         long rev = REV.incrementAndGet();
+                        FolderBackup.run(ctx, false);
                         if (listener != null) listener.onDataChangedRemotely(rev);
                         json(out, 200, "{\"ok\":true,\"rev\":" + rev + "}", null);
                     } else {
@@ -339,7 +340,7 @@ public final class WebServer {
     private static String loginPage() {
         return "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-                + "<title>Упр. учёт — вход</title><style>"
+                + "<title>管理会计 — вход</title><style>"
                 + "body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f6fa;font:16px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;color:#171a24}"
                 + ".box{background:#fff;padding:32px 28px;border-radius:18px;box-shadow:0 4px 24px rgba(20,24,40,.08);width:min(360px,90vw);text-align:center}"
                 + "h1{font-size:22px;margin:0 0 6px}p{color:#6b7184;margin:0 0 20px;font-size:14px}"
@@ -347,7 +348,7 @@ public final class WebServer {
                 + "button{margin-top:14px;width:100%;padding:12px;font-size:16px;border:0;border-radius:12px;background:#2f5bea;color:#fff;font-weight:600;cursor:pointer}"
                 + ".err{color:#e5484d;font-size:14px;min-height:20px;margin-top:10px}"
                 + "@media(prefers-color-scheme:dark){body{background:#12141b;color:#eef0f6}.box{background:#1b1e28}input{background:#232735;color:#eef0f6;border-color:#2d3242}}"
-                + "</style></head><body><form class=\"box\" id=\"f\"><h1>Упр. учёт</h1>"
+                + "</style></head><body><form class=\"box\" id=\"f\"><h1>管理会计</h1>"
                 + "<p>Введите PIN-код, который показан на телефоне в разделе «Доступ с компьютера»</p>"
                 + "<input id=\"pin\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"6\" autofocus>"
                 + "<button type=\"submit\">Войти</button><div class=\"err\" id=\"e\"></div></form>"

@@ -1,4 +1,4 @@
-/* Веб-клиент «Упр. учёт» для браузера на компьютере.
+/* Веб-клиент «管理会计» для браузера на компьютере.
  * Загружается перед app.js только при открытии через «Доступ с компьютера».
  * Данные берутся с телефона и сохраняются обратно на телефон через его API. */
 'use strict';
@@ -148,5 +148,5 @@
   });
 
   window.__remote = { poll, get rev() { return rev; } };
-  document.addEventListener('DOMContentLoaded', () => { setOffline(false); document.title = 'Упр. учёт — с компьютера'; });
+  document.addEventListener('DOMContentLoaded', () => { setOffline(false); document.title = '管理会计 — с компьютера'; });
 })();

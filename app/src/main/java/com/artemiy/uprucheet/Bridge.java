@@ -35,9 +35,35 @@ public final class Bridge {
         if (ok) {
             Store.autoBackup(a, false);
             WebServer.REV.incrementAndGet();
+            new Thread(() -> FolderBackup.run(a, false)).start();
         }
         return ok;
     }
+
+    // ---------- Автокопия в выбранную папку ----------
+
+    @JavascriptInterface
+    public String folderBackupStatus() { return FolderBackup.statusJson(a); }
+
+    @JavascriptInterface
+    public void folderBackupPick() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        a.runOnUiThread(() -> {
+            try { a.startActivityForResult(i, MainActivity.REQ_BACKUP_FOLDER); }
+            catch (Exception e) { a.emit("folderBackup", "fail"); }
+        });
+    }
+
+    @JavascriptInterface
+    public boolean folderBackupNow() { return FolderBackup.run(a, true); }
+
+    @JavascriptInterface
+    public void folderBackupClear() { FolderBackup.clear(a); }
+
+    @JavascriptInterface
+    public void folderBackupKeep(int keep) { FolderBackup.setKeep(a, keep); }
 
     // ---------- Доступ с компьютера по Wi-Fi ----------
 

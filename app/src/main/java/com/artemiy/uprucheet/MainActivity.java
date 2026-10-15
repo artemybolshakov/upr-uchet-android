@@ -27,6 +27,7 @@ public class MainActivity extends Activity {
     static final int REQ_IMPORT = 502;
     static final int REQ_PERMS = 503;
     static final int REQ_IMPORT_RAW = 504;
+    static final int REQ_BACKUP_FOLDER = 505;
 
     WebView webView;
     String pendingExport;
@@ -89,6 +90,7 @@ public class MainActivity extends Activity {
         Alarms.scheduleDaily(this);
         new Thread(() -> {
             Store.autoBackup(this, false);
+            FolderBackup.run(this, false);
             CalendarSync.snapshot(this);
         }).start();
     }
@@ -131,6 +133,14 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         Uri uri = data == null ? null : data.getData();
+        if (requestCode == REQ_BACKUP_FOLDER) {
+            if (resultCode == RESULT_OK && uri != null && FolderBackup.setFolder(this, uri)) {
+                new Thread(() -> emit("folderBackup", FolderBackup.run(this, true) ? "ok" : "fail")).start();
+            } else {
+                emit("folderBackup", "cancel");
+            }
+            return;
+        }
         if (requestCode == REQ_EXPORT) {
             boolean ok = false;
             if (resultCode == RESULT_OK && uri != null && pendingExport != null) {

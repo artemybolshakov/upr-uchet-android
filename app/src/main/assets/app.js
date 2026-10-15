@@ -1,11 +1,10 @@
-/* Упр. учёт — задачи, CRM, календарь, заметки. Все данные хранятся локально на устройстве. */
+/* 管理会计 (упр. учёт) — задачи, CRM, календарь, заметки. Все данные хранятся локально на устройстве. */
 'use strict';
 
 /* =========================================================
  * 1. Утилиты
  * ======================================================= */
-const APP_VERSION = '1.0.0';
-const SCHEMA = 1;
+// APP_VERSION, SCHEMA, emptyData, migrate, parseBackup — в schema.js
 const N = window.Native || null; // Android-мост (в браузере отсутствует)
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -73,75 +72,16 @@ const I = {
   today: '<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><circle cx="12" cy="15" r="2"/>',
   backup: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
   sub: '<path d="M6 3v12a3 3 0 0 0 3 3h9"/><path d="m15 15 3 3-3 3"/>',
+  folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M12 8S10.5 3 8 3a2.5 2.5 0 0 0 0 5M12 8s1.5-5 4-5a2.5 2.5 0 0 1 0 5"/>',
+  filter: '<path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/>',
 };
 const icon = (n, cls) => `<svg class="${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n] || ''}</svg>`;
 
 /* =========================================================
  * 2. Данные, миграции, хранение
  * ======================================================= */
-function emptyData() {
-  return {
-    schema: SCHEMA,
-    meta: { createdAt: new Date().toISOString(), updatedAt: null, appVersion: APP_VERSION },
-    settings: {
-      me: 'Я',
-      people: ['Я'],
-      statuses: [
-        { id: 'todo', name: 'К выполнению' },
-        { id: 'doing', name: 'В работе' },
-        { id: 'wait', name: 'Ожидание' },
-        { id: 'done', name: 'Готово' },
-      ],
-      defaultRemind: 15,
-      importantRemind: [60, 15, 0],
-      taskRemindTime: '10:00',
-      deviceCalendarId: null,
-      showDeviceCalendars: [],
-      showDeviceEvents: true,
-      summary: { home: true, overdue: true, today: true, week: true, people: true, events: true, crm: true, notes: false },
-      tasksView: 'kanban',
-      kanbanGroup: 'people',
-      linksGroup: 'parents',
-      ganttScale: 'day',
-      contactTypes: ['Инвестор', 'Ангел', 'Партнер', 'Инфлюенсер', 'Издатель', 'Разработчик', 'Медиа', 'Музыка', 'Фонд', 'ГОС', 'Образование', 'Сотрудник'],
-      contactStatuses: ['Надо освежить', 'Работаем', 'Диалог', 'Архив молчаливый', 'Архив жесткий отказ', 'Поиск денег прямо сейчас'],
-    },
-    tasks: [],
-    contacts: [],
-    events: [],
-    notes: [],
-  };
-}
-
-/* Миграции: каждая функция переводит данные из версии N в N+1. Бэкапы старых версий всегда открываются в новых. */
-const MIGRATIONS = {
-  // 1: (d) => { ...; d.schema = 2; return d; },
-};
-
-function migrate(raw) {
-  let d = raw && typeof raw === 'object' ? raw : {};
-  if (!d.schema) d.schema = 1;
-  while (MIGRATIONS[d.schema] && d.schema < SCHEMA) d = MIGRATIONS[d.schema](d);
-  // Заполняем недостающие поля значениями по умолчанию (новые поля не ломают старые бэкапы).
-  const def = emptyData();
-  d.meta = Object.assign({}, def.meta, d.meta || {});
-  d.settings = Object.assign({}, def.settings, d.settings || {});
-  d.settings.summary = Object.assign({}, def.settings.summary, d.settings.summary || {});
-  if (!Array.isArray(d.settings.people) || !d.settings.people.length) d.settings.people = def.settings.people;
-  if (!Array.isArray(d.settings.statuses) || !d.settings.statuses.length) d.settings.statuses = def.settings.statuses;
-  for (const k of ['tasks', 'contacts', 'events', 'notes']) if (!Array.isArray(d[k])) d[k] = [];
-  d.tasks.forEach((t) => {
-    t.crmIds = t.crmIds || []; t.eventIds = t.eventIds || []; t.deps = t.deps || [];
-    t.status = t.status || 'todo'; t.assignee = t.assignee || d.settings.me;
-  });
-  d.events.forEach((e) => { e.crmIds = e.crmIds || []; if (e.remind == null) e.remind = [d.settings.defaultRemind]; });
-  d.notes.forEach((n) => { n.crmIds = n.crmIds || []; });
-  for (const k of ['contactTypes', 'contactStatuses']) if (!Array.isArray(d.settings[k])) d.settings[k] = def.settings[k].slice();
-  d.contacts.forEach((c) => { c.tags = c.tags || []; c.types = c.types || []; c.statuses = c.statuses || []; });
-  if (d.schema > SCHEMA) console.warn('Данные из более новой версии приложения: неизвестные поля сохранены как есть.');
-  else d.schema = SCHEMA;
-  return d;
-}
+/* Формат данных, миграции и резервные копии — в schema.js (проверяется тестом совместимости в CI). */
 
 let D = emptyData();
 let saveTimer = null;
@@ -170,17 +110,17 @@ function save(immediate) {
   if (immediate) run(); else saveTimer = setTimeout(run, 250);
 }
 
-function makeBackup() {
-  return { format: 'upr-uchet-backup', schema: SCHEMA, appVersion: APP_VERSION, exportedAt: new Date().toISOString(), data: D };
-}
+function makeBackup() { return wrapBackup(D); }
 
-function restoreFrom(text) {
-  let obj;
-  try { obj = JSON.parse(text); } catch (e) { toast('Файл не является резервной копией'); return false; }
-  const data = obj && obj.format === 'upr-uchet-backup' ? obj.data : obj;
-  if (!data || typeof data !== 'object' || !('tasks' in data || 'contacts' in data || 'events' in data)) { toast('В файле нет данных приложения'); return false; }
-  if (N) try { N.backupNow(); } catch (e) { /* страховочная копия перед восстановлением */ }
-  D = migrate(data);
+function restoreFrom(text, confirmedNewer) {
+  const r = parseBackup(text);
+  if (!r.ok) { toast(r.error); return false; }
+  if (r.newer && !confirmedNewer) {
+    confirmBox('Копия сделана в более новой версии приложения (формат v' + r.fileSchema + '). Лучше сначала обновить приложение. Всё равно восстановить? Неизвестные данные сохранятся как есть.', () => restoreFrom(text, true), 'Восстановить');
+    return false;
+  }
+  if (N) try { save(true); N.backupNow(); } catch (e) { /* страховочная копия перед восстановлением */ }
+  D = r.data;
   save(true);
   toast('Данные восстановлены');
   render();
@@ -193,6 +133,7 @@ const task = (id) => byId(D.tasks, id);
 const contact = (id) => byId(D.contacts, id);
 const event = (id) => byId(D.events, id);
 const note = (id) => byId(D.notes, id);
+const project = (id) => (id ? byId(D.projects, id) : null);
 const statusName = (id) => (D.settings.statuses.find((s) => s.id === id) || { name: id }).name;
 const isDone = (t) => t.status === 'done';
 
@@ -205,6 +146,87 @@ function taskState(t) {
   return 'future';
 }
 function contactOverdue(c) { return c.nextContact && c.nextContact < today(); }
+
+/* ---------- Проекты: связывают задачи; CRM-контакты попадают в проект через задачи ---------- */
+function tasksOfProject(pid) { return D.tasks.filter((t) => (pid ? t.projectId === pid : !t.projectId)); }
+function contactsOfTasks(tasks) {
+  const ids = new Set();
+  tasks.forEach((t) => t.crmIds.forEach((id) => ids.add(id)));
+  return Array.from(ids).map(contact).filter(Boolean);
+}
+function projectStats(pid) {
+  const all = tasksOfProject(pid);
+  const open = all.filter((t) => !isDone(t));
+  let cs = contactsOfTasks(open);
+  if (!pid) {
+    // «Без проекта»: ещё и контакты с датой связи, не привязанные к открытым задачам проектов
+    const inProjects = new Set(contactsOfTasks(D.tasks.filter((t) => t.projectId && !isDone(t))).map((c) => c.id));
+    const extra = D.contacts.filter((c) => c.nextContact && !inProjects.has(c.id));
+    cs = Array.from(new Map(cs.concat(extra).filter((c) => !inProjects.has(c.id)).map((c) => [c.id, c])).values());
+  }
+  const t = today();
+  return {
+    total: all.length, done: all.length - open.length,
+    todoTasks: open.filter((x) => taskState(x) !== 'overdue'),
+    overdueTasks: open.filter((x) => taskState(x) === 'overdue'),
+    todoCrm: cs.filter((c) => c.nextContact && c.nextContact >= t),
+    overdueCrm: cs.filter((c) => c.nextContact && c.nextContact < t),
+    contacts: contactsOfTasks(all),
+  };
+}
+function removeProject(id) {
+  D.projects = D.projects.filter((p) => p.id !== id);
+  D.tasks.forEach((t) => { if (t.projectId === id) t.projectId = null; });
+}
+function projectChip(pid) {
+  const p = project(pid);
+  return p ? `<span class="chip"><i class="dot" style="background:${esc(p.color || colorFor(p.name))}"></i>${esc(p.name)}</span>` : '';
+}
+
+/* ---------- Дни рождения контактов (показываются в календаре как события) ---------- */
+const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+function birthdayOn(c, day) {
+  if (!c.birthday || c.birthday.length < 10) return false;
+  const md = c.birthday.slice(5, 10), dmd = day.slice(5, 10);
+  if (md === dmd) return true;
+  return md === '02-29' && dmd === '02-28' && !isLeap(Number(day.slice(0, 4)));
+}
+function birthdaysOn(day) { return D.contacts.filter((c) => birthdayOn(c, day)); }
+function ageOn(c, day) {
+  const y = Number(c.birthday.slice(0, 4));
+  return y > 1900 ? Number(day.slice(0, 4)) - y : null;
+}
+function nextBirthday(c, from) {
+  if (!c.birthday || c.birthday.length < 10) return null;
+  const base = parseDate(from || today());
+  for (let i = 0; i < 367; i++) { const d = ymd(addDays(base, i)); if (birthdayOn(c, d)) return d; }
+  return null;
+}
+function upcomingBirthdays(days) {
+  const t = today();
+  return D.contacts.map((c) => ({ c, d: nextBirthday(c, t) })).filter((x) => x.d && daysBetween(t, x.d) <= days)
+    .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : a.c.name.localeCompare(b.c.name, 'ru')));
+}
+function birthdayItem(c, day) {
+  const age = ageOn(c, day);
+  const diff = daysBetween(today(), day);
+  const when = diff === 0 ? 'сегодня' : diff === 1 ? 'завтра' : fmtDate(day, true);
+  return `<div class="item" data-a="open" data-type="contact" data-id="${c.id}">
+    <div class="ev-time">${icon('gift')}</div><div class="ev-bar bd"></div>
+    <div class="grow"><div class="t">День рождения: ${esc(c.name)}</div>
+    <div class="s"><span class="chip ${diff === 0 ? 'green' : diff === 1 ? 'amber' : 'blue'}">${esc(when)}</span>${age ? `<span>исполняется ${age}</span>` : ''}${c.company ? `<span>${esc(c.company)}</span>` : ''}</div></div>
+  </div>`;
+}
+
+/* ---------- «Связаться»: сегодня — зелёный, завтра — жёлтый, позже — синий с датой, просрочено — красный ---------- */
+function contactDueChip(c, long) {
+  if (!c.nextContact) return '';
+  const d = daysBetween(today(), c.nextContact);
+  if (d < 0) return `<span class="chip red">${icon('phone')}${long ? 'просрочено с ' : ''}${esc(fmtShort(c.nextContact))}</span>`;
+  if (d === 0) return `<span class="chip green">${icon('phone')}сегодня</span>`;
+  if (d === 1) return `<span class="chip amber">${icon('phone')}завтра</span>`;
+  return `<span class="chip blue">${icon('phone')}${esc(long ? fmtDate(c.nextContact, true) : fmtShort(c.nextContact))}</span>`;
+}
 function eventsOn(day) { return D.events.filter((e) => e.start && e.start.slice(0, 10) <= day && (e.end || e.start).slice(0, 10) >= day); }
 function tasksOfContact(cid) { return D.tasks.filter((t) => t.crmIds.includes(cid)); }
 function eventsOfContact(cid) { return D.events.filter((e) => e.crmIds.includes(cid)); }
@@ -274,6 +296,20 @@ function buildAlarms() {
     if (d.getTime() <= now || d.getTime() > horizon) continue;
     list.push({ key: 'crm-' + c.id, at: d.getTime(), title: 'Связаться: ' + c.name, text: c.company || 'CRM', aggressive: false, ref: 'contact:' + c.id });
   }
+  if (D.settings.birthdayRemind) {
+    const [h, mi] = (D.settings.taskRemindTime || '10:00').split(':').map(Number);
+    for (const c of D.contacts) {
+      const day = nextBirthday(c, today());
+      if (!day) continue;
+      const age = ageOn(c, day);
+      [[0, 'Сегодня день рождения'], [1, 'Завтра день рождения']].forEach(([before, label]) => {
+        const d = addDays(parseDate(day), -before);
+        d.setHours(h, mi, 0, 0);
+        if (d.getTime() <= now || d.getTime() > horizon) return;
+        list.push({ key: 'bd-' + c.id + '-' + day + '-' + before, at: d.getTime(), title: label + ': ' + c.name, text: (age ? 'Исполняется ' + age : 'День рождения') + (c.company ? ' · ' + c.company : ''), aggressive: false, ref: 'contact:' + c.id });
+      });
+    }
+  }
   return list.sort((a, b) => a.at - b.at).slice(0, 400);
 }
 function humanMins(m) {
@@ -301,6 +337,8 @@ const ui = {
   notesContact: 'all',
   notesQuery: '',
   taskQuery: '',
+  tfProject: '', tfCrm: '', tfPerson: '', tfStatus: '', tfDue: '', // фильтры задач
+  projArchived: false,
   showDone: false,
   cal: { month: today().slice(0, 7), sel: today() },
   devEvents: [],
@@ -309,8 +347,9 @@ const ui = {
 };
 
 const TABS = [
-  { id: 'home', name: 'Главная', icon: 'home' },
+  { id: 'home', name: 'Мои дела', icon: 'home' },
   { id: 'tasks', name: 'Задачи', icon: 'tasks' },
+  { id: 'projects', name: 'Проекты', icon: 'folder' },
   { id: 'crm', name: 'CRM', icon: 'crm' },
   { id: 'calendar', name: 'Календарь', icon: 'cal' },
   { id: 'notes', name: 'Заметки', icon: 'notes' },
@@ -331,7 +370,7 @@ function renderNav() {
   const badge = { home: c.overdueTasks + c.overdueCrm, crm: c.overdueCrm, tasks: c.overdueTasks };
   const btn = (t) => `<button data-a="tab" data-id="${t.id}" class="${ui.tab === t.id ? 'active' : ''}">${icon(t.icon)}<span>${t.name}</span>${badge[t.id] && t.id !== 'home' ? `<b class="badge">${badge[t.id]}</b>` : ''}</button>`;
   $('#nav').innerHTML = `
-    <div class="brand"><i></i>Упр. учёт</div>
+    <div class="brand"><i></i>管理会计</div>
     <div class="nav-items">${TABS.map(btn).join('')}</div>
     <div class="nav-foot">
       <button data-a="tab" data-id="summary" class="only-wide ${ui.tab === 'summary' ? 'active' : ''}">${icon('share')}<span>Сводка</span></button>
@@ -372,18 +411,75 @@ function openSheet(type, id, opts) {
   if (wide && !entry.edit) ui.stack = [entry]; else ui.stack.push(entry);
   renderSheet();
 }
-function closeSheet() { ui.stack.pop(); renderSheet(); if (!ui.stack.length) render(); }
-function closeAll() { ui.stack = []; render(); }
+function closeSheet() { const t = ui.stack.pop(); if (t && (t.edit || t.draft)) clearDraft(); renderSheet(); if (!ui.stack.length) render(); }
+function closeAll() { ui.stack = []; clearDraft(); render(); }
+
+/* Черновик открытой формы: при любой перерисовке (поворот экрана, смена режима Mate XT, синхронизация)
+   несохранённый ввод не теряется. Черновик живёт в записи стека и в sessionStorage. */
+function captureForm(form) {
+  const fields = [];
+  Array.from(form.elements).forEach((x) => {
+    if (!x.name) return;
+    if (x.type === 'checkbox' || x.type === 'radio') fields.push([x.name, x.value, x.checked]);
+    else fields.push([x.name, null, x.value]);
+  });
+  const rte = {};
+  $$('[data-rte]', form).forEach((x) => { rte[x.dataset.rte] = x.innerHTML; });
+  return { fields, rte };
+}
+function applyDraft(form, d) {
+  if (!d) return;
+  const els = Array.from(form.elements);
+  const used = new Set();
+  d.fields.forEach(([name, value, v]) => {
+    const el = els.find((x) => !used.has(x) && x.name === name && (value === null || x.value === value));
+    if (!el) return;
+    used.add(el);
+    if (value === null) el.value = v; else el.checked = v;
+  });
+  Object.entries(d.rte || {}).forEach(([k, html]) => { const x = $(`[data-rte="${k}"]`, form); if (x) x.innerHTML = html; });
+  $$('.msel', form).forEach(mselRefresh);
+}
+function sheetKey(top) { return top ? [top.type, top.id || 'new', top.edit ? 'edit' : 'view'].join(':') : ''; }
+function storeDraft() {
+  const top = ui.stack[ui.stack.length - 1];
+  const form = $('#sheet form[data-form]');
+  if (!top || !form) return;
+  top.draft = captureForm(form);
+  try { localStorage.setItem('upr-draft', JSON.stringify({ key: sheetKey(top), type: top.type, id: top.id || null, preset: top.preset || null, draft: top.draft, at: Date.now() })); } catch (e) { /* */ }
+}
+function clearDraft() { try { localStorage.removeItem('upr-draft'); } catch (e) { /* */ } }
+// Если приложение было выгружено системой с открытой формой — возвращаем черновик (не старше суток)
+function restoreDraftAfterRestart() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem('upr-draft') || 'null'); } catch (e) { d = null; }
+  if (!d || !d.draft || Date.now() - (d.at || 0) > 86400000 || !SHEETS[d.type + 'Form']) { clearDraft(); return; }
+  const coll = { task: 'tasks', contact: 'contacts', event: 'events', note: 'notes', project: 'projects' }[d.type];
+  if (d.id && (!coll || !byId(D[coll] || [], d.id))) { clearDraft(); return; }
+  ui.stack.push({ type: d.type, id: d.id || null, edit: true, preset: d.preset || {}, draft: d.draft });
+  renderSheet();
+  toast('Восстановлен несохранённый черновик');
+}
 
 function renderSheet() {
   const el = $('#sheet');
   const top = ui.stack[ui.stack.length - 1];
   $('#app').classList.toggle('with-sheet', !!top);
-  if (!top) { el.hidden = true; el.innerHTML = ''; return; }
+  if (!top) { el.hidden = true; el.innerHTML = ''; el.dataset.key = ''; return; }
+  // Та же карточка перерисовывается — сохраняем ввод и прокрутку
+  const key = sheetKey(top);
+  const same = el.dataset.key === key && !el.hidden;
+  const oldForm = $('form[data-form]', el);
+  if (same && oldForm) top.draft = captureForm(oldForm);
+  const scroll = same ? el.scrollTop : 0;
   el.hidden = false;
   const fn = SHEETS[top.type + (top.edit ? 'Form' : '')];
   el.innerHTML = fn ? fn(top) : '';
-  el.scrollTop = 0;
+  el.dataset.key = key;
+  const form = $('form[data-form]', el);
+  if (form && top.draft) applyDraft(form, top.draft);
+  if (form) initEditors(form);
+  el.scrollTop = scroll;
 }
 
 function sheetHead(title, extra) {
@@ -427,11 +523,15 @@ window.__back = function () {
 window.__native = function (type, payload) {
   if (type === 'open' && payload) {
     const [kind, id] = payload.split(':');
-    const map = { event: 'event', task: 'task', contact: 'contact' };
-    if (map[kind] && byId(D[kind === 'contact' ? 'contacts' : kind + 's'], id)) openSheet(map[kind], id);
+    const map = { event: 'events', task: 'tasks', contact: 'contacts', project: 'projects' };
+    if (map[kind] && byId(D[map[kind]], id)) openSheet(kind, id);
   } else if (type === 'imported') {
     if (payload) confirmBox('Заменить текущие данные данными из файла? Текущие данные будут сохранены в автокопию.', () => restoreFrom(payload), 'Восстановить');
     else toast('Файл не выбран');
+  } else if (type === 'folderBackup') {
+    if (payload === 'ok') toast('Папка выбрана, первая копия сохранена');
+    else if (payload === 'fail') toast('Не удалось сохранить в эту папку — выберите другую');
+    if (ui.tab === 'settings') render();
   } else if (type === 'exported') {
     toast(payload === 'ok' ? 'Резервная копия сохранена' : 'Копия не сохранена');
   } else if (type === 'permissions' || type === 'resume') {
@@ -475,7 +575,7 @@ function taskItem(t) {
     <button class="check ${isDone(t) ? 'on' : ''}" data-a="toggle-task" data-id="${t.id}" aria-label="Готово">${isDone(t) ? icon('check') : ''}</button>
     <div class="grow">
       <div class="t">${t.important ? '<span style="color:var(--danger)">●</span> ' : ''}${esc(t.title)}</div>
-      <div class="s">${dueChip(t)}${personChip(t.assignee)}${crmChips(t.crmIds)}${parent ? `<span class="chip">${icon('sub')}${esc(parent.title)}</span>` : ''}${subs.length ? `<span class="chip">${subs.filter(isDone).length}/${subs.length} подзадач</span>` : ''}</div>
+      <div class="s">${dueChip(t)}${personChip(t.assignee)}${ui.tab !== 'projects' && !(ui.stack.length && ui.stack[ui.stack.length - 1].type === 'project') ? projectChip(t.projectId) : ''}${crmChips(t.crmIds)}${parent ? `<span class="chip">${icon('sub')}${esc(parent.title)}</span>` : ''}${subs.length ? `<span class="chip">${subs.filter(isDone).length}/${subs.length} подзадач</span>` : ''}</div>
     </div>
   </div>`;
 }
@@ -526,12 +626,11 @@ function mselRefresh(box) {
 
 function contactItem(c) {
   const open = tasksOfContact(c.id).filter((t) => !isDone(t)).length;
-  const od = contactOverdue(c);
   return `<div class="item" data-a="open" data-type="contact" data-id="${c.id}">
     ${avatar(c)}
     <div class="grow">
       <div class="t">${esc(c.name)}</div>
-      <div class="s">${c.company ? `<span>${esc(c.company)}</span>` : ''}${statusChips({ statuses: c.statuses }, 2)}${c.nextContact ? `<span class="chip ${od ? 'red' : c.nextContact === today() ? 'amber' : ''}">${icon('phone')}${esc(fmtDate(c.nextContact))}</span>` : ''}${open ? `<span class="chip blue">${open} ${plural(open, 'задача', 'задачи', 'задач')}</span>` : ''}</div>
+      <div class="s">${contactDueChip(c)}${c.company ? `<span>${esc(c.company)}</span>` : ''}${statusChips({ statuses: c.statuses }, 2)}${open ? `<span class="chip blue">${open} ${plural(open, 'задача', 'задачи', 'задач')}</span>` : ''}</div>
     </div>
   </div>`;
 }
@@ -591,43 +690,95 @@ SCREENS.home = function () {
     }
     body = `<div class="section-title">${titles[ui.homeFilter]}<button class="btn sm right" data-a="home-filter" data-id="">Скрыть</button></div>${content}`;
   } else {
-    const evs = eventsOn(t).sort((a, b) => a.start < b.start ? -1 : 1);
-    const todayT = D.tasks.filter((x) => !isDone(x) && x.due === t).sort(sortByDue);
-    const overdue = D.tasks.filter((x) => taskState(x) === 'overdue').sort(sortByDue);
-    const soon = D.tasks.filter((x) => taskState(x) === 'future' && daysBetween(t, x.due) <= 7).sort(sortByDue);
-    const crm = D.contacts.filter((x) => x.nextContact && x.nextContact <= t).sort((a, b) => a.nextContact < b.nextContact ? -1 : 1);
-    body = `<div class="home-cols">
-      <div>
-        <div class="section-title">Сегодня в календаре</div>${listOf(evs, (e) => eventItem(e), 'Событий нет')}
-        <div class="section-title">Задачи на сегодня</div>${listOf(todayT, taskItem, 'Задач на сегодня нет')}
-        ${overdue.length ? `<div class="section-title" style="color:var(--danger)">Просрочено</div>${listOf(overdue.slice(0, 8), taskItem, '')}` : ''}
-      </div>
-      <div>
-        <div class="section-title">CRM: пора связаться</div>${listOf(crm.slice(0, 10), contactItem, 'Всё по плану')}
-        <div class="section-title">Ближайшие 7 дней</div>${listOf(soon.slice(0, 10), taskItem, 'Ничего не запланировано')}
-      </div>
-    </div>`;
+    body = projectDashboard();
   }
   return `<div class="head">
-      <div class="grow"><h1>Главная</h1><div class="sub">${WD[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}</div></div>
+      <div class="grow"><h1>Мои дела</h1><div class="sub">${WD[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}</div></div>
       <button class="btn" data-a="quick-summary" title="Скопировать сводку">${icon('copy')}<span class="only-wide-inline">Сводка</span></button>
       <button class="icon-btn only-narrow" data-a="tab" data-id="summary" aria-label="Сводка">${icon('share')}</button>
       <button class="icon-btn only-narrow" data-a="tab" data-id="settings" aria-label="Настройки">${icon('settings')}</button>
     </div>
     <div class="stats">
-      ${stat('overdueCrm', 'red', 'crm', c.overdueCrm, 'Просроченные карточки CRM')}
+      ${stat('todayTasks', 'blue', 'tasks', c.todayTasks, 'Задачи на сегодня')}
+      ${stat('todayCrmEvents', 'violet', 'today', c.todayCrmEvents, 'События CRM на сегодня')}
       ${stat('overdueTasks', 'amber', 'warn', c.overdueTasks, 'Просроченные задачи')}
-      ${stat('todayTasks', 'blue', 'tasks', c.todayTasks, 'Задач на сегодня')}
-      ${stat('todayCrmEvents', 'violet', 'today', c.todayCrmEvents, 'Событий CRM на сегодня')}
+      ${stat('overdueCrm', 'red', 'crm', c.overdueCrm, 'Просроченные CRM')}
     </div>
     ${body}
     <button class="fab" data-a="new-menu" aria-label="Создать">${icon('plus')}</button>`;
 };
 
+/* Дашборд проектов: крупные блоки с двумя категориями внимания */
+function projectCard(p, st, opts) {
+  const o = opts || {};
+  const color = p ? (p.color || colorFor(p.name)) : 'var(--muted)';
+  const n = (arr) => arr.length;
+  const cat = (cls, label, tasks, crm) => {
+    const hot = tasks + crm > 0;
+    return `<div class="pc-cat ${cls} ${hot ? 'hot' : ''}"><span class="l">${label}</span>
+      <span class="v"><b>${tasks}</b> ${plural(tasks, 'задача', 'задачи', 'задач')} · <b>${crm}</b> crm</span></div>`;
+  };
+  const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
+  const attrs = p ? `data-a="open" data-type="project" data-id="${p.id}"` : `data-a="tasks-filter" data-id="none"`;
+  return `<div class="pcard ${p && p.archived ? 'archived' : ''}" style="--pc:${esc(color)}" ${attrs}>
+    <div class="pc-h"><span class="pc-name">${esc(p ? p.name : 'Без проекта')}</span>${p && p.archived ? '<span class="chip">архив</span>' : ''}</div>
+    ${p && p.desc && o.desc ? `<div class="sub ellipsis">${esc(p.desc)}</div>` : ''}
+    <div class="pc-cats">
+      ${cat('todo', 'К выполнению', n(st.todoTasks), n(st.todoCrm))}
+      ${cat('od', 'Просрочено', n(st.overdueTasks), n(st.overdueCrm))}
+    </div>
+    ${st.total ? `<div class="pc-prog"><i style="width:${pct}%"></i></div><div class="sub small">${st.done} из ${st.total} ${plural(st.total, 'задачи', 'задач', 'задач')} выполнено</div>` : '<div class="sub small">Задач пока нет</div>'}
+  </div>`;
+}
+function projectDashboard() {
+  const items = D.projects.filter((p) => !p.archived).map((p) => ({ p, st: projectStats(p.id) }));
+  const weight = (x) => (x.st.overdueTasks.length + x.st.overdueCrm.length) * 1000 + x.st.todoTasks.length + x.st.todoCrm.length;
+  items.sort((a, b) => weight(b) - weight(a) || a.p.name.localeCompare(b.p.name, 'ru'));
+  const none = projectStats(null);
+  const showNone = none.todoTasks.length + none.overdueTasks.length + none.todoCrm.length + none.overdueCrm.length > 0;
+  const cards = items.map((x) => projectCard(x.p, x.st)).join('') + (showNone ? projectCard(null, none) : '');
+  return `<div class="section-title">Проекты<button class="btn sm right" data-a="new" data-type="project">${icon('plus')}Проект</button></div>
+    ${cards ? `<div class="pgrid">${cards}</div>` : `<div class="list"><div class="empty">Проектов пока нет. Проект объединяет задачи — а через задачи и CRM-контакты. <br><button class="btn primary mt" data-a="new" data-type="project">${icon('plus')}Создать проект</button></div></div>`}`;
+}
+
 /* ---------- Задачи ---------- */
 function visibleTasks() {
   const q = ui.taskQuery.trim().toLowerCase();
-  return D.tasks.filter((t) => (ui.showDone || !isDone(t)) && (!q || (t.title + ' ' + (t.desc || '') + ' ' + (t.assignee || '')).toLowerCase().includes(q)));
+  const t0 = today();
+  const showDone = ui.showDone || ui.tfStatus === 'done';
+  return D.tasks.filter((t) => {
+    if (!showDone && isDone(t)) return false;
+    if (q && !(t.title + ' ' + (t.desc || '') + ' ' + (t.assignee || '') + ' ' + ((project(t.projectId) || {}).name || '')).toLowerCase().includes(q)) return false;
+    if (ui.tfProject === 'none' ? !!t.projectId : ui.tfProject && t.projectId !== ui.tfProject) return false;
+    if (ui.tfCrm === 'none' ? t.crmIds.length > 0 : ui.tfCrm && !t.crmIds.includes(ui.tfCrm)) return false;
+    if (ui.tfPerson === '—' ? !!t.assignee : ui.tfPerson && t.assignee !== ui.tfPerson) return false;
+    if (ui.tfStatus && t.status !== ui.tfStatus) return false;
+    if (ui.tfDue) {
+      const d = t.due ? daysBetween(t0, t.due) : null;
+      if (ui.tfDue === 'overdue' && !(d !== null && d < 0 && !isDone(t))) return false;
+      if (ui.tfDue === 'today' && d !== 0) return false;
+      if (ui.tfDue === 'tomorrow' && d !== 1) return false;
+      if (ui.tfDue === 'week' && !(d !== null && d >= 0 && d <= 7)) return false;
+      if (ui.tfDue === 'later' && !(d !== null && d > 7)) return false;
+      if (ui.tfDue === 'nodue' && d !== null) return false;
+    }
+    return true;
+  });
+}
+function taskFiltersActive() { return ['tfProject', 'tfCrm', 'tfPerson', 'tfStatus', 'tfDue'].filter((k) => ui[k]).length; }
+function taskFilterBar() {
+  const opt = (v, n, cur) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(n)}</option>`;
+  const projects = D.projects.slice().sort((a, b) => (a.archived - b.archived) || a.name.localeCompare(b.name, 'ru'));
+  const crmUsed = contactsOfTasks(D.tasks).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  const sel = (key, label, opts) => `<select class="tf ${ui[key] ? 'on' : ''}" data-change="${key}" aria-label="${label}">${opt('', label + ': все', ui[key])}${opts}</select>`;
+  return `<div class="tf-bar">
+    ${sel('tfProject', 'Проект', projects.map((p) => opt(p.id, p.name + (p.archived ? ' (архив)' : ''), ui.tfProject)).join('') + opt('none', 'Без проекта', ui.tfProject))}
+    ${sel('tfCrm', 'CRM', crmUsed.map((c) => opt(c.id, c.name, ui.tfCrm)).join('') + opt('none', 'Без контакта', ui.tfCrm))}
+    ${sel('tfPerson', 'Исполнитель', allPeople().map((x) => opt(x, x, ui.tfPerson)).join('') + opt('—', 'Без исполнителя', ui.tfPerson))}
+    ${sel('tfStatus', 'Статус', D.settings.statuses.map((x) => opt(x.id, x.name, ui.tfStatus)).join(''))}
+    ${sel('tfDue', 'Срок', [['overdue', 'Просрочено'], ['today', 'Сегодня'], ['tomorrow', 'Завтра'], ['week', 'Ближайшие 7 дней'], ['later', 'Позже'], ['nodue', 'Без срока']].map(([v, n]) => opt(v, n, ui.tfDue)).join(''))}
+    ${taskFiltersActive() ? `<button class="btn sm" data-a="tf-reset">${icon('close')}Сбросить</button>` : ''}
+  </div>`;
 }
 function allPeople() {
   const set = new Set(D.settings.people);
@@ -647,6 +798,13 @@ function dueBuckets() {
   ];
 }
 function taskGroups(mode, tasks) {
+  if (mode === 'project') {
+    return D.projects.filter((p) => !p.archived || tasks.some((t) => t.projectId === p.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+      .map((p) => ({ id: p.id, name: p.name, color: p.color || colorFor(p.name), items: tasks.filter((t) => t.projectId === p.id), preset: { projectId: p.id } }))
+      .concat([{ id: '', name: 'Без проекта', items: tasks.filter((t) => !t.projectId), preset: {} }])
+      .filter((g) => g.items.length || (g.id && !ui.tfProject));
+  }
   if (mode === 'people') {
     return allPeople().map((p) => ({ id: p, name: p, color: colorFor(p), items: tasks.filter((t) => (t.assignee || '') === p), preset: { assignee: p } }))
       .concat([{ id: '', name: 'Без исполнителя', items: tasks.filter((t) => !t.assignee), preset: { assignee: '' } }])
@@ -663,9 +821,9 @@ SCREENS.tasks = function () {
   const views = [['kanban', 'Канбан'], ['links', 'Связи'], ['gantt', 'Гант'], ['list', 'Список']];
   let groupSel = '';
   if (v === 'kanban') {
-    groupSel = `<div class="seg">${[['people', 'Исполнители'], ['due', 'Сроки'], ['status', 'Статусы']].map(([k, n]) => `<button class="${D.settings.kanbanGroup === k ? 'on' : ''}" data-a="set" data-key="kanbanGroup" data-val="${k}">${n}</button>`).join('')}</div>`;
+    groupSel = `<div class="seg">${[['people', 'Исполнители'], ['project', 'Проекты'], ['due', 'Сроки'], ['status', 'Статусы']].map(([k, n]) => `<button class="${D.settings.kanbanGroup === k ? 'on' : ''}" data-a="set" data-key="kanbanGroup" data-val="${k}">${n}</button>`).join('')}</div>`;
   } else if (v === 'links') {
-    groupSel = `<div class="seg">${[['parents', 'Подзадачи'], ['people', 'Исполнители'], ['due', 'Сроки']].map(([k, n]) => `<button class="${D.settings.linksGroup === k ? 'on' : ''}" data-a="set" data-key="linksGroup" data-val="${k}">${n}</button>`).join('')}</div>`;
+    groupSel = `<div class="seg">${[['parents', 'Подзадачи'], ['people', 'Исполнители'], ['project', 'Проекты'], ['due', 'Сроки']].map(([k, n]) => `<button class="${D.settings.linksGroup === k ? 'on' : ''}" data-a="set" data-key="linksGroup" data-val="${k}">${n}</button>`).join('')}</div>`;
   } else if (v === 'gantt') {
     groupSel = `<div class="seg">${[['day', 'Дни'], ['week', 'Недели']].map(([k, n]) => `<button class="${D.settings.ganttScale === k ? 'on' : ''}" data-a="set" data-key="ganttScale" data-val="${k}">${n}</button>`).join('')}</div>`;
   }
@@ -675,8 +833,12 @@ SCREENS.tasks = function () {
   else if (v === 'gantt') body = gantt(tasks);
   else if (v === 'links') body = linksView(tasks);
   else body = listOf(tasks.slice().sort(sortByDue), taskItem, D.tasks.length ? 'Ничего не найдено' : 'Задач пока нет. Нажмите «+», чтобы добавить первую.');
+  const preset = {};
+  if (ui.tfProject && ui.tfProject !== 'none') preset.projectId = ui.tfProject;
+  if (ui.tfCrm && ui.tfCrm !== 'none') preset.crmIds = [ui.tfCrm];
+  if (ui.tfPerson && ui.tfPerson !== '—') preset.assignee = ui.tfPerson;
   return `<div class="head"><h1>Задачи</h1>
-      <button class="btn primary" data-a="new" data-type="task">${icon('plus')}<span>Задача</span></button></div>
+      <button class="btn primary" data-a="new" data-type="task" data-preset='${esc(JSON.stringify(preset))}'>${icon('plus')}<span>Задача</span></button></div>
     <div class="row" style="margin-bottom:10px">
       <div class="seg">${views.map(([k, n]) => `<button class="${v === k ? 'on' : ''}" data-a="set" data-key="tasksView" data-val="${k}">${n}</button>`).join('')}</div>
       ${groupSel}
@@ -685,6 +847,7 @@ SCREENS.tasks = function () {
       <input class="search grow" placeholder="Поиск задач" data-input="taskQuery" value="${esc(ui.taskQuery)}">
       <label class="toggle" style="padding:6px 10px"><input type="checkbox" data-a="toggle-done" ${ui.showDone ? 'checked' : ''}><span class="small">Готовые</span></label>
     </div>
+    ${taskFilterBar()}
     ${body}`;
 };
 
@@ -694,7 +857,7 @@ function kanban(tasks) {
     const items = g.items.slice().sort(sortByDue);
     return `<div class="col">
       <div class="col-h">${g.color ? `<i class="dot" style="background:${g.color}"></i>` : ''}<span class="grow ellipsis">${esc(g.name)}</span><span class="cnt">${items.length}</span>
-        <button class="icon-btn" style="width:30px;height:30px" data-a="new" data-type="task" data-preset='${esc(JSON.stringify(g.preset || {}))}' aria-label="Добавить">${icon('plus')}</button></div>
+        <button class="icon-btn" style="width:30px;height:30px" data-a="new" data-type="task" data-preset='${esc(JSON.stringify(Object.assign(ui.tfProject && ui.tfProject !== 'none' ? { projectId: ui.tfProject } : {}, g.preset || {})))}' aria-label="Добавить">${icon('plus')}</button></div>
       ${items.map(kcard).join('') || '<div class="empty small">Пусто</div>'}
     </div>`;
   }).join('')}</div>`;
@@ -706,7 +869,7 @@ function kcard(t) {
   return `<div class="kcard ${st}" data-a="open" data-type="task" data-id="${t.id}">
     ${parent ? `<div class="small muted ellipsis">${icon('sub', '')} ${esc(parent.title)}</div>` : ''}
     <div class="t">${t.important ? '<span style="color:var(--danger)">●</span> ' : ''}${esc(t.title)}</div>
-    <div class="m">${dueChip(t)}${D.settings.kanbanGroup !== 'people' ? personChip(t.assignee) : ''}${D.settings.kanbanGroup !== 'status' ? `<span class="chip ${isDone(t) ? 'green' : ''}">${esc(statusName(t.status))}</span>` : ''}${crmChips(t.crmIds, 1)}${subs.length ? `<span class="chip">${subs.filter(isDone).length}/${subs.length}</span>` : ''}${t.deps.length ? `<span class="chip">${icon('link')}${t.deps.length}</span>` : ''}</div>
+    <div class="m">${dueChip(t)}${D.settings.kanbanGroup !== 'people' ? personChip(t.assignee) : ''}${D.settings.kanbanGroup !== 'project' ? projectChip(t.projectId) : ''}${D.settings.kanbanGroup !== 'status' ? `<span class="chip ${isDone(t) ? 'green' : ''}">${esc(statusName(t.status))}</span>` : ''}${crmChips(t.crmIds, 1)}${subs.length ? `<span class="chip">${subs.filter(isDone).length}/${subs.length}</span>` : ''}${t.deps.length ? `<span class="chip">${icon('link')}${t.deps.length}</span>` : ''}</div>
   </div>`;
 }
 
@@ -843,6 +1006,20 @@ function drawLinks() {
   </defs>${paths}`;
 }
 
+/* ---------- Проекты ---------- */
+SCREENS.projects = function () {
+  const arch = ui.projArchived;
+  const list = D.projects.filter((p) => !!p.archived === arch).map((p) => ({ p, st: projectStats(p.id) }))
+    .sort((a, b) => a.p.name.localeCompare(b.p.name, 'ru'));
+  const archCount = D.projects.filter((p) => p.archived).length;
+  const none = projectStats(null);
+  return `<div class="head"><h1>Проекты</h1><button class="btn primary" data-a="new" data-type="project">${icon('plus')}<span>Проект</span></button></div>
+    <div class="sub" style="margin:-4px 0 10px">Проект объединяет задачи. CRM-контакты попадают в проект через его задачи.</div>
+    <div class="seg" style="margin-bottom:12px"><button class="${!arch ? 'on' : ''}" data-a="proj-arch" data-id="0">Активные</button><button class="${arch ? 'on' : ''}" data-a="proj-arch" data-id="1">Архив${archCount ? ' · ' + archCount : ''}</button></div>
+    ${list.length ? `<div class="pgrid">${list.map((x) => projectCard(x.p, x.st, { desc: true })).join('')}${!arch && none.total ? projectCard(null, none) : ''}</div>`
+      : `<div class="list"><div class="empty">${arch ? 'В архиве пусто' : 'Проектов пока нет. Создайте первый — и привязывайте к нему задачи.'}</div></div>`}`;
+};
+
 /* ---------- CRM ---------- */
 SCREENS.crm = function () {
   const q = ui.crmQuery.trim().toLowerCase();
@@ -904,7 +1081,8 @@ SCREENS.calendar = function () {
     const evs = eventsOn(k);
     const dev = devEventsOn(k).length;
     const tk = D.tasks.filter((x) => x.due === k && !isDone(x)).length;
-    const dots = evs.slice(0, 3).map((e) => `<i class="${e.important ? 'imp' : ''}"></i>`).join('') + (dev ? '<i class="dev"></i>' : '') + (tk ? '<i class="task"></i>' : '');
+    const bd = birthdaysOn(k).length;
+    const dots = (bd ? '<i class="bd"></i>' : '') + evs.slice(0, 3).map((e) => `<i class="${e.important ? 'imp' : ''}"></i>`).join('') + (dev ? '<i class="dev"></i>' : '') + (tk ? '<i class="task"></i>' : '');
     cells += `<button class="cal-d ${d.getMonth() !== m - 1 ? 'out' : ''} ${k === t ? 'td' : ''} ${k === ui.cal.sel ? 'sel' : ''}" data-a="cal-sel" data-id="${k}"><span>${d.getDate()}</span><span class="dots">${dots}</span></button>`;
     if (i === 34 && addDays(gridStart, 35).getMonth() !== m - 1) break;
   }
@@ -912,6 +1090,8 @@ SCREENS.calendar = function () {
   const evs = eventsOn(sel).sort((a, b) => (a.allDay ? '0' : a.start) < (b.allDay ? '0' : b.start) ? -1 : 1);
   const dev = devEventsOn(sel);
   const tks = D.tasks.filter((x) => x.due === sel).sort(sortByDue);
+  const bds = birthdaysOn(sel);
+  const soon = upcomingBirthdays(30).filter((x) => x.d !== sel);
   return `<div class="head"><h1>Календарь</h1><button class="btn primary" data-a="new" data-type="event" data-preset='${esc(JSON.stringify({ date: sel }))}'>${icon('plus')}<span>Событие</span></button></div>
     <div class="cal-layout">
       <div class="cal">
@@ -921,12 +1101,13 @@ SCREENS.calendar = function () {
           <button class="icon-btn" data-a="cal-month" data-id="1" aria-label="Следующий месяц" style="transform:scaleX(-1)">${icon('back')}</button>
         </div>
         <div class="cal-grid">${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((w) => `<div class="cal-wd">${w}</div>`).join('')}${cells}</div>
-        <div class="row mt small muted"><button class="btn sm" data-a="cal-today">Сегодня</button><span class="right"><i class="dot" style="background:var(--danger)"></i> важное <i class="dot" style="background:var(--accent)"></i> событие <i class="dot" style="background:var(--warn)"></i> срок задачи <i class="dot"></i> системный</span></div>
+        <div class="row mt small muted"><button class="btn sm" data-a="cal-today">Сегодня</button><span class="right"><i class="dot" style="background:var(--danger)"></i> важное <i class="dot" style="background:var(--accent)"></i> событие <i class="dot" style="background:var(--warn)"></i> срок задачи <i class="dot" style="background:var(--pink)"></i> день рождения <i class="dot"></i> системный</span></div>
       </div>
       <div>
         <div class="section-title" style="margin-top:4px">${esc(fmtDate(sel, true))}</div>
-        ${evs.length || dev.length ? `<div class="list">${evs.map((e) => eventItem(e)).join('')}${dev.map(devEventItem).join('')}</div>` : '<div class="list"><div class="empty">Событий нет</div></div>'}
+        ${evs.length || dev.length || bds.length ? `<div class="list">${bds.map((c) => birthdayItem(c, sel)).join('')}${evs.map((e) => eventItem(e)).join('')}${dev.map(devEventItem).join('')}</div>` : '<div class="list"><div class="empty">Событий нет</div></div>'}
         ${tks.length ? `<div class="section-title">Сроки задач</div>${listOf(tks, taskItem, '')}` : ''}
+        ${soon.length ? `<div class="section-title">Ближайшие дни рождения</div><div class="list">${soon.slice(0, 8).map((x) => birthdayItem(x.c, x.d)).join('')}</div>` : ''}
         ${N && !D.settings.showDeviceEvents ? '' : ''}
       </div>
     </div>`;
@@ -990,6 +1171,14 @@ function buildSummary(opts) {
     }
     L.push('');
   }
+  if (o.projects && !who && D.projects.some((p) => !p.archived)) {
+    L.push('ПО ПРОЕКТАМ');
+    D.projects.filter((p) => !p.archived).forEach((p) => {
+      const st = projectStats(p.id);
+      L.push(`• ${p.name}: к выполнению ${st.todoTasks.length} задач / ${st.todoCrm.length} crm; просрочено ${st.overdueTasks.length} задач / ${st.overdueCrm.length} crm`);
+    });
+    L.push('');
+  }
   if (o.overdue && overdue.length) { L.push(`⚠ ПРОСРОЧЕНО (${overdue.length})`); overdue.forEach((x) => L.push(tl(x))); L.push(''); }
   if (o.today) { L.push(`СЕГОДНЯ (${todays.length})`); if (todays.length) todays.forEach((x) => L.push(tl(x))); else L.push('— задач нет'); L.push(''); }
   if (o.week && week.length) { L.push(`БЛИЖАЙШИЕ 7 ДНЕЙ (${week.length})`); week.forEach((x) => L.push(tl(x))); L.push(''); }
@@ -1028,7 +1217,7 @@ function copyText(text) {
 
 SCREENS.summary = function () {
   const s = D.settings.summary;
-  const opts = [['home', 'Итоги (счётчики)'], ['overdue', 'Просроченные задачи'], ['today', 'Задачи на сегодня'], ['week', 'Задачи на 7 дней'], ['people', 'По исполнителям'], ['events', 'Встречи на 7 дней'], ['crm', 'CRM: пора связаться'], ['notes', 'Заметки к обсуждению']];
+  const opts = [['home', 'Итоги (счётчики)'], ['projects', 'По проектам'], ['overdue', 'Просроченные задачи'], ['today', 'Задачи на сегодня'], ['week', 'Задачи на 7 дней'], ['people', 'По исполнителям'], ['events', 'Встречи на 7 дней'], ['crm', 'CRM: пора связаться'], ['notes', 'Заметки к обсуждению']];
   const text = buildSummary({ person: ui.summaryPerson || '' });
   return `<div class="head"><button class="icon-btn only-narrow" data-a="tab" data-id="home">${icon('back')}</button><h1>Сводка</h1></div>
     <div class="sub" style="margin-bottom:12px">Текстовый срез для отправки партнёру в мессенджер. Выберите разделы — нажмите «Скопировать».</div>
@@ -1071,6 +1260,7 @@ SCREENS.settings = function () {
       </div>
       <div class="field"><label>Важное событие (будильник): за сколько минут, через запятую</label><input data-setting="importantRemind" value="${esc(s.importantRemind.join(', '))}"></div>
       <div class="row"><button class="btn" data-a="test-alarm" data-id="0">${icon('bell')}Тест обычного</button><button class="btn danger" data-a="test-alarm" data-id="1">${icon('alarm')}Тест будильника (через 5 с)</button></div>
+      <label class="toggle"><input type="checkbox" data-a="set-bool" data-key="birthdayRemind" ${s.birthdayRemind ? 'checked' : ''}><span class="grow">Напоминать о днях рождения контактов<small>Накануне и в сам день, во время напоминаний CRM</small></span></label>
       <div class="sub">Важные события звонят как будильник и не замолкают, пока вы не нажмёте «Отключить» или «Отложить».</div>
     </div>
 
@@ -1081,7 +1271,7 @@ SCREENS.settings = function () {
       ${perm('fullScreen', 'Полноэкранный сигнал', 'Экран будильника поверх блокировки')}
       ${perm('battery', 'Без ограничений батареи', 'Чтобы система не «усыпляла» напоминания')}
       ${perm('calendar', 'Календарь', 'Синхронизация с календарём телефона')}
-      <div class="sub mt">Для Huawei: Настройки → Приложения → Запуск приложений → «Упр. учёт» → «Управлять вручную» и включите автозапуск, косвенный запуск и работу в фоне. Также в настройках уведомлений приложения разрешите «Баннеры», «Экран блокировки» и звук.</div>
+      <div class="sub mt">Для Huawei: Настройки → Приложения → Запуск приложений → «管理会计» → «Управлять вручную» и включите автозапуск, косвенный запуск и работу в фоне. Также в настройках уведомлений приложения разрешите «Баннеры», «Экран блокировки» и звук.</div>
       <button class="btn sm mt" data-a="perm" data-id="app">Открыть настройки приложения</button>
     </div>` : ''}
 
@@ -1106,7 +1296,8 @@ SCREENS.settings = function () {
         <button class="btn" data-a="backup-import">Восстановить из файла</button>
         ${N ? `<button class="btn" data-a="backup-now">${icon('backup')}Копия сейчас</button>` : ''}
       </div>
-      <div class="sub">Формат копии версионирован: копии из этой версии откроются во всех следующих версиях приложения. Автокопия создаётся каждый день (хранятся 30 последних).</div>
+      ${N && N.folderBackupStatus ? folderBackupBlock() : ''}
+      <div class="sub">Формат копии версионирован (сейчас v${SCHEMA}): копии любых прошлых версий открываются в новых — это проверяется автоматически при каждой сборке приложения. Внутренняя автокопия создаётся каждый день (хранятся 30 последних), но она удалится вместе с приложением — поэтому включите копию в папку.</div>
       ${backups.length ? `<div class="list">${backups.slice(0, 15).map((f) => `<div class="item" data-a="backup-restore" data-id="${esc(f.name)}"><div class="grow"><div class="t">${esc(f.name.replace('auto-', '').replace('.json', ''))}</div><div class="s">${fmtSize(f.size)} · нажмите, чтобы восстановить</div></div></div>`).join('')}</div>` : ''}
     </div>
 
@@ -1116,11 +1307,36 @@ SCREENS.settings = function () {
         <dt>Версия</dt><dd>${esc(info.version || APP_VERSION)} · формат данных v${SCHEMA}</dd>
         <dt>Устройство</dt><dd>${esc(info.device || navigator.userAgent.slice(0, 40))}</dd>
         <dt>Экран</dt><dd class="screen-mode">${window.innerWidth}×${window.innerHeight} — ${screenMode()}</dd>
-        <dt>Данные</dt><dd>${D.tasks.length} задач, ${D.contacts.length} контактов, ${D.events.length} событий, ${D.notes.length} заметок</dd>
+        <dt>Данные</dt><dd>${D.projects.length} проектов, ${D.tasks.length} задач, ${D.contacts.length} контактов, ${D.events.length} событий, ${D.notes.length} заметок</dd>
       </dl>
       <div class="row mt"><button class="btn sm" data-a="demo">Заполнить примером</button><button class="btn sm danger" data-a="wipe">Удалить все данные</button></div>
     </div>`;
 };
+function folderBackupBlock() {
+  let st = {};
+  try { st = JSON.parse(N.folderBackupStatus() || '{}'); } catch (e) { /* */ }
+  if (!st.enabled) {
+    return `<div class="perm"><div class="grow"><div><b>Ежедневно сохранять копию в папку</b></div><div class="sub">Выберите папку на телефоне (например, «Документы/管理会计»). Копия переживёт удаление приложения; её можно перенести на компьютер или в облако.</div></div>
+      <button class="btn sm primary" data-a="folder-pick">Выбрать папку</button></div>`;
+  }
+  const last = st.lastAt ? new Date(st.lastAt) : null;
+  const lastTxt = last ? `${fmtDate(ymd(last))} в ${hm(last)} — ${esc(st.lastFile || '')}` : 'ещё не было';
+  return `<div class="card" style="background:var(--panel-2);box-shadow:none;margin:0">
+      <div class="row"><b class="grow">Ежедневная копия в папку</b><span class="chip ${st.lastError || !st.access ? 'red' : 'green'}">${st.lastError || !st.access ? 'ошибка' : 'включено'}</span></div>
+      <dl class="kv mt">
+        <dt>Папка</dt><dd>${esc(st.folder || st.path || '')}</dd>
+        <dt>Последняя копия</dt><dd>${lastTxt}</dd>
+        ${st.lastError ? `<dt>Ошибка</dt><dd style="color:var(--danger)">${esc(st.lastError)}</dd>` : ''}
+        <dt>Хранить</dt><dd><select data-a="folder-keep" class="search" style="width:auto;padding:4px 8px;min-height:0">${[7, 14, 30, 60, 90, 365].map((n) => `<option value="${n}" ${st.keep === n ? 'selected' : ''}>${n} ${plural(n, 'последнюю копию', 'последние копии', 'последних копий')}</option>`).join('')}</select></dd>
+      </dl>
+      <div class="row mt">
+        <button class="btn sm" data-a="folder-now">${icon('backup')}Сохранить сейчас</button>
+        <button class="btn sm" data-a="folder-pick">Сменить папку</button>
+        <button class="btn sm danger" data-a="folder-off">Выключить</button>
+      </div>
+      <div class="sub mt">Копия создаётся раз в день — ночью или при первом открытии приложения за день. Файлы называются «管理会计-автокопия-ГГГГ-ММ-ДД.json»; восстановить — кнопкой «Восстановить из файла». Другие файлы в папке приложение не трогает.</div>
+    </div>`;
+}
 function screenMode() {
   const w = window.innerWidth;
   if (w >= 980) return 'тройной экран / планшет';
@@ -1151,6 +1367,7 @@ SHEETS.task = function ({ id }) {
   return sheetHead(esc(t.title), `<button class="icon-btn" data-a="edit" data-type="task" data-id="${t.id}" aria-label="Изменить">${icon('edit')}</button>`)
     + `<div class="seg" style="margin-bottom:12px">${D.settings.statuses.map((s) => `<button class="${t.status === s.id ? 'on' : ''}" data-a="task-status" data-id="${t.id}" data-val="${s.id}">${esc(s.name)}</button>`).join('')}</div>
     <div class="card"><dl class="kv">
+      <dt>Проект</dt><dd>${project(t.projectId) ? `<a href="#" data-a="open" data-type="project" data-id="${t.projectId}">${projectChip(t.projectId)}</a>` : '—'}</dd>
       <dt>Исполнитель</dt><dd>${personChip(t.assignee) || '—'}</dd>
       <dt>Начало</dt><dd>${t.start ? esc(fmtDate(t.start, true)) : '—'}</dd>
       <dt>Срок</dt><dd>${t.due ? dueChip(t) : '—'}</dd>
@@ -1161,7 +1378,7 @@ SHEETS.task = function ({ id }) {
       crms.length ? listOf(crms, contactItem, '') : '<div class="sub">Задача не привязана к контактам</div>')
     + linkSection('События календаря', smallBtn('pick', '+ Привязать', `data-type="event" data-for="task" data-id="${t.id}"`) + smallBtn('new', '+ Новое', `data-type="event" data-preset='${esc(JSON.stringify({ taskId: t.id, date: t.due || today() }))}'`),
       evs.length ? listOf(evs, (e) => eventItem(e, true), '') : '<div class="sub">Нет связанных событий</div>')
-    + linkSection(`Подзадачи${subs.length ? ' ' + subs.filter(isDone).length + '/' + subs.length : ''}`, smallBtn('new', '+ Подзадача', `data-type="task" data-preset='${esc(JSON.stringify({ parentId: t.id, assignee: t.assignee, crmIds: t.crmIds }))}'`),
+    + linkSection(`Подзадачи${subs.length ? ' ' + subs.filter(isDone).length + '/' + subs.length : ''}`, smallBtn('new', '+ Подзадача', `data-type="task" data-preset='${esc(JSON.stringify({ parentId: t.id, assignee: t.assignee, crmIds: t.crmIds, projectId: t.projectId || null }))}'`),
       subs.length ? listOf(subs, taskItem, '') : '<div class="sub">Нет подзадач</div>')
     + linkSection('Сначала выполнить (зависимости)', smallBtn('pick', '+ Добавить', `data-type="dep" data-for="task" data-id="${t.id}"`),
       deps.length ? listOf(deps, taskItem, '') : '<div class="sub">Нет зависимостей</div>')
@@ -1170,13 +1387,15 @@ SHEETS.task = function ({ id }) {
 };
 
 SHEETS.taskForm = function ({ id, preset }) {
-  const t = id ? task(id) : Object.assign({ title: '', desc: '', assignee: D.settings.me, status: 'todo', start: '', due: '', dueTime: '', remindAt: '', important: false, parentId: null }, preset || {});
+  const t = id ? task(id) : Object.assign({ title: '', desc: '', assignee: D.settings.me, status: 'todo', start: '', due: '', dueTime: '', remindAt: '', important: false, parentId: null, projectId: null }, preset || {});
+  const projects = D.projects.filter((p) => !p.archived || p.id === t.projectId).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   const people = allPeople();
   const exclude = new Set();
   if (id) { const walk = (x) => { exclude.add(x); subtasks(x).forEach((s) => walk(s.id)); }; walk(id); }
   const parents = D.tasks.filter((x) => !exclude.has(x.id) && !isDone(x)).sort(sortByDue);
   return sheetHead(id ? 'Изменить задачу' : 'Новая задача') + `<form class="form" data-form="task" data-id="${id || ''}">
     <div class="field"><label>Название</label><input name="title" required value="${esc(t.title)}" placeholder="Что нужно сделать"></div>
+    <div class="field"><label>Проект</label><select name="projectId"><option value="">— без проекта —</option>${projects.map((p) => `<option value="${p.id}" ${t.projectId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><input name="projectNew" placeholder="или новый проект" style="margin-top:6px"></div>
     <div class="field-row">
       <div class="field"><label>Исполнитель</label><select name="assignee"><option value="">—</option>${people.map((p) => `<option ${t.assignee === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select><input name="assigneeNew" placeholder="или новый исполнитель" style="margin-top:6px"></div>
       <div class="field"><label>Статус</label><select name="status">${D.settings.statuses.map((s) => `<option value="${s.id}" ${t.status === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
@@ -1193,6 +1412,43 @@ SHEETS.taskForm = function ({ id, preset }) {
   </form>`;
 };
 
+/* ---------- Проект ---------- */
+const PROJECT_COLORS = ['#2f5bea', '#1f9d5a', '#e5484d', '#d98a00', '#7c4ddb', '#0e9fb0', '#d6409f', '#5b6475'];
+SHEETS.project = function ({ id }) {
+  const p = project(id);
+  if (!p) return sheetHead('Проект удалён');
+  const st = projectStats(p.id);
+  const all = tasksOfProject(p.id);
+  const open = all.filter((t) => !isDone(t)).sort(sortByDue);
+  const done = all.filter(isDone).sort((a, b) => (b.doneAt || '') < (a.doneAt || '') ? -1 : 1);
+  const cs = st.contacts.slice().sort((a, b) => (contactOverdue(b) - contactOverdue(a)) || a.name.localeCompare(b.name, 'ru'));
+  const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
+  return sheetHead(`<i class="dot" style="background:${esc(p.color || colorFor(p.name))};width:12px;height:12px"></i> ${esc(p.name)}`, `<button class="icon-btn" data-a="edit" data-type="project" data-id="${p.id}" aria-label="Изменить">${icon('edit')}</button>`)
+    + `${p.desc ? `<div class="desc" style="margin-bottom:12px">${esc(p.desc)}</div>` : ''}
+    <div class="pc-cats" style="margin-bottom:10px">
+      <div class="pc-cat todo ${st.todoTasks.length + st.todoCrm.length ? 'hot' : ''}"><span class="l">К выполнению</span><span class="v"><b>${st.todoTasks.length}</b> задач · <b>${st.todoCrm.length}</b> crm</span></div>
+      <div class="pc-cat od ${st.overdueTasks.length + st.overdueCrm.length ? 'hot' : ''}"><span class="l">Просрочено</span><span class="v"><b>${st.overdueTasks.length}</b> задач · <b>${st.overdueCrm.length}</b> crm</span></div>
+    </div>
+    ${st.total ? `<div class="pc-prog" style="--pc:${esc(p.color || colorFor(p.name))}"><i style="width:${pct}%"></i></div><div class="sub small">${st.done} из ${st.total} выполнено · ${pct}%</div>` : ''}
+    <div class="row mt"><button class="btn sm" data-a="tasks-filter" data-id="${p.id}">${icon('filter')}Открыть в задачах</button>${p.archived ? '<span class="chip">в архиве</span>' : ''}</div>`
+    + linkSection(`Задачи (${open.length})`, smallBtn('pick', '+ Привязать', `data-type="ptask" data-for="project" data-id="${p.id}"`) + smallBtn('new', '+ Новая', `data-type="task" data-preset='${esc(JSON.stringify({ projectId: p.id }))}'`),
+      open.length ? listOf(open, taskItem, '') : '<div class="sub">Открытых задач нет</div>')
+    + linkSection(`CRM-контакты (${cs.length})`, '', cs.length ? listOf(cs, contactItem, '') : '<div class="sub">Контакты появятся здесь, когда вы привяжете их к задачам проекта</div>')
+    + (done.length ? `<details class="mt"><summary class="section-title" style="cursor:pointer">Выполнено (${done.length})</summary>${listOf(done, taskItem, '')}</details>` : '')
+    + `<div class="form-actions mt2"><button class="btn danger" data-a="delete" data-type="project" data-id="${p.id}">${icon('trash')}Удалить проект</button></div>`;
+};
+SHEETS.projectForm = function ({ id, preset }) {
+  const p = id ? project(id) : Object.assign({ name: '', desc: '', color: PROJECT_COLORS[D.projects.length % PROJECT_COLORS.length], archived: false }, preset || {});
+  if (!p) return sheetHead('Проект удалён');
+  return sheetHead(id ? 'Изменить проект' : 'Новый проект') + `<form class="form" data-form="project" data-id="${id || ''}">
+    <div class="field"><label>Название</label><input name="name" required value="${esc(p.name)}" placeholder="Например: Запуск сайта"></div>
+    <div class="field"><label>Цвет</label><div class="picker">${PROJECT_COLORS.map((c) => `<label class="swatch"><input type="radio" name="color" value="${c}" ${(p.color || '') === c ? 'checked' : ''}><i style="background:${c}"></i></label>`).join('')}</div></div>
+    <div class="field"><label>Описание</label><textarea name="desc" placeholder="Цель, договорённости, ссылки">${esc(p.desc || '')}</textarea></div>
+    ${id ? `<label class="toggle"><input type="checkbox" name="archived" ${p.archived ? 'checked' : ''}><span class="grow">В архиве<small>Проект пропадёт с главного экрана; задачи сохранятся</small></span></label>` : ''}
+    <div class="form-actions"><button class="btn primary" type="submit">${icon('check')}Сохранить</button><button class="btn" type="button" data-a="sheet-back">Отмена</button></div>
+  </form>`;
+};
+
 /* ---------- Контакт ---------- */
 SHEETS.contact = function ({ id }) {
   const c = contact(id);
@@ -1202,14 +1458,13 @@ SHEETS.contact = function ({ id }) {
   const upcoming = evs.filter((e) => e.start.slice(0, 10) >= today()).reverse();
   const past = evs.filter((e) => e.start.slice(0, 10) < today());
   const nts = notesOfContact(c.id).sort((a, b) => a.discussed - b.discussed);
-  const od = contactOverdue(c);
   return sheetHead('', `<button class="icon-btn" data-a="edit" data-type="contact" data-id="${c.id}" aria-label="Изменить">${icon('edit')}</button>`)
     + `<div class="row" style="margin:-6px 0 14px">${avatar(c, c.photo ? 96 : 56)}
       <div class="grow"><h2 style="margin:0">${esc(c.name)}</h2><div class="sub">${esc([c.role, c.company].filter(Boolean).join(' · '))}</div></div></div>
     <div class="card"><div class="section-title" style="margin-top:0">О контакте</div><dl class="kv">
       ${c.company ? `<dt>Компания</dt><dd>${esc(c.company)}</dd>` : ''}
       ${c.role ? `<dt>Должность</dt><dd>${esc(c.role)}</dd>` : ''}
-      ${c.birthday ? `<dt>Дата рождения</dt><dd>${esc(c.birthday.split('-').reverse().join('.'))}</dd>` : ''}
+      ${c.birthday ? `<dt>Дата рождения</dt><dd>${esc(c.birthday.split('-').reverse().join('.'))}${(() => { const nb = nextBirthday(c); if (!nb) return ''; const dd = daysBetween(today(), nb); return dd === 0 ? ' <span class="chip green">🎂 сегодня</span>' : dd <= 30 ? ` <span class="chip blue">через ${dd} ${plural(dd, 'день', 'дня', 'дней')}</span>` : ''; })()}</dd>` : ''}
       <dt>Тип контакта</dt><dd>${(c.types || []).length ? c.types.map((x) => `<span class="chip violet">${esc(x)}</span>`).join(' ') : '—'}</dd>
       <dt>Статус</dt><dd>${(c.statuses || []).length ? statusChips({ statuses: c.statuses }) : '—'}</dd>
     </dl></div>
@@ -1217,13 +1472,14 @@ SHEETS.contact = function ({ id }) {
       ${c.phone ? `<dt>Телефон</dt><dd><a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">${esc(c.phone)}</a></dd>` : ''}
       ${c.email ? `<dt>Почта</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
       ${c.contacts ? `<dt>Соц. сети и другие контакты</dt><dd>${contactsHtml(c.contacts)}</dd>` : ''}
-      <dt>Связаться</dt><dd>${c.nextContact ? `<span class="chip ${od ? 'red' : c.nextContact === today() ? 'amber' : 'blue'}">${esc(fmtDate(c.nextContact, true))}${od ? ' · просрочено' : ''}</span>` : '—'}</dd>
+      <dt>Связаться</dt><dd>${c.nextContact ? `${contactDueChip(c, true)} <button class="btn sm" data-a="contacted" data-id="${c.id}" style="padding:2px 10px;min-height:0">${icon('check')}Связался</button>` : '—'}</dd>
       ${c.lastContact ? `<dt>Был контакт</dt><dd>${esc(fmtDate(c.lastContact))}</dd>` : ''}
       ${c.tags && c.tags.length ? `<dt>Теги</dt><dd>${c.tags.map((x) => `<span class="chip">${esc(x)}</span>`).join(' ')}</dd>` : ''}
     </dl>${c.comment ? `<div class="desc mt">${esc(c.comment)}</div>` : ''}
     <div class="row mt">
-      <button class="btn sm" data-a="contacted" data-id="${c.id}">${icon('check')}Связался сегодня</button>
-      ${[[1, '+1 д'], [3, '+3 д'], [7, '+нед'], [30, '+мес']].map(([n, l]) => `<button class="btn sm" data-a="next-contact" data-id="${c.id}" data-val="${n}">${l}</button>`).join('')}
+      <button class="btn sm cbtn green ${c.nextContact === today() ? 'on' : ''}" data-a="next-contact" data-id="${c.id}" data-val="0">Сегодня</button>
+      <button class="btn sm cbtn amber ${c.nextContact && daysBetween(today(), c.nextContact) === 1 ? 'on' : ''}" data-a="next-contact" data-id="${c.id}" data-val="1">+1 д</button>
+      <button class="btn sm cbtn blue ${c.nextContact && daysBetween(today(), c.nextContact) > 1 ? 'on' : ''}" data-a="contact-date" data-id="${c.id}">${icon('cal')}Выбрать дату</button>
     </div></div>`
     + linkSection(`Задачи (${tks.filter((x) => !isDone(x)).length})`, smallBtn('pick', '+ Привязать', `data-type="task" data-for="contact" data-id="${c.id}"`) + smallBtn('new', '+ Новая', `data-type="task" data-preset='${esc(JSON.stringify({ crmIds: [c.id] }))}'`),
       tks.length ? listOf(tks, taskItem, '') : '<div class="sub">Задач по контакту нет</div>')
@@ -1314,7 +1570,7 @@ SHEETS.noteForm = function ({ id, preset }) {
   return sheetHead(id ? 'Заметка' : 'Новая заметка') + `<form class="form" data-form="note" data-id="${id || ''}">
     <div class="field"><label>Контакт</label><select name="crmId"><option value="">— без контакта —</option>${D.contacts.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((c) => `<option value="${c.id}" ${n.crmIds[0] === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Тема</label><input name="title" value="${esc(n.title || '')}" placeholder="О чём поговорить"></div>
-    <div class="field"><label>Мысли, вопросы, договорённости</label><textarea name="body" style="min-height:180px">${esc(n.body || '')}</textarea></div>
+    <div class="field"><label>Мысли, вопросы, договорённости</label>${rteField('body', n.html != null ? n.html : textToHtml(n.body || ''), 'Начните писать… Оформление — кнопками сверху')}</div>
     <label class="toggle"><input type="checkbox" name="discussed" ${n.discussed ? 'checked' : ''}><span class="grow">Обсуждено</span></label>
     <div class="form-actions"><button class="btn primary" type="submit">${icon('check')}Сохранить</button><button class="btn" type="button" data-a="sheet-back">Отмена</button>
     ${id ? `<button class="btn danger right" type="button" data-a="delete" data-type="note" data-id="${id}">${icon('trash')}</button>` : ''}</div>
@@ -1332,6 +1588,7 @@ function pickerState(type, forType, forId, cand) {
     if (type === 'dep') return t.deps.includes(cand);
   }
   if (forType === 'contact' && type === 'task') return task(cand).crmIds.includes(forId);
+  if (forType === 'project' && type === 'ptask') return task(cand).projectId === forId;
   if (forType === 'event') {
     if (type === 'contact') return event(forId).crmIds.includes(cand);
     if (type === 'task') return task(cand).eventIds.includes(forId);
@@ -1357,6 +1614,7 @@ function pickerToggle(type, forType, forId, cand) {
     }
   }
   if (forType === 'contact' && type === 'task') toggleArr(task(cand).crmIds, forId);
+  if (forType === 'project' && type === 'ptask') { const t = task(cand); t.projectId = t.projectId === forId ? null : forId; t.updatedAt = new Date().toISOString(); }
   if (forType === 'event') {
     if (type === 'contact') toggleArr(event(forId).crmIds, cand);
     if (type === 'task') toggleArr(task(cand).eventIds, forId);
@@ -1370,9 +1628,10 @@ function renderPicker() {
   let items = [];
   if (p.type === 'contact') items = D.contacts.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((c) => ({ id: c.id, t: c.name, s: c.company || '' }));
   if (p.type === 'task' || p.type === 'dep') items = D.tasks.filter((t) => t.id !== p.forId && (!isDone(t) || pickerState(p.type, p.forType, p.forId, t.id))).sort(sortByDue).map((t) => ({ id: t.id, t: t.title, s: [t.assignee, t.due ? fmtDate(t.due) : ''].filter(Boolean).join(' · ') }));
+  if (p.type === 'ptask') items = D.tasks.filter((t) => !isDone(t) || t.projectId === p.forId).sort(sortByDue).map((t) => ({ id: t.id, t: t.title, s: [t.projectId && t.projectId !== p.forId ? 'сейчас в: ' + ((project(t.projectId) || {}).name || '') : '', t.assignee, t.due ? fmtDate(t.due) : ''].filter(Boolean).join(' · ') }));
   if (p.type === 'event') items = D.events.slice().sort((a, b) => a.start < b.start ? 1 : -1).map((e) => ({ id: e.id, t: e.title, s: fmtDate(e.start.slice(0, 10)) + (e.allDay ? '' : ' ' + e.start.slice(11, 16)) }));
   items = items.filter((x) => !q || (x.t + ' ' + x.s).toLowerCase().includes(q));
-  const title = { contact: 'Привязать контакт', task: 'Привязать задачу', event: 'Привязать событие', dep: 'Сначала нужно выполнить' }[p.type];
+  const title = { contact: 'Привязать контакт', task: 'Привязать задачу', event: 'Привязать событие', dep: 'Сначала нужно выполнить', ptask: 'Задачи проекта' }[p.type];
   modal(`<div class="row"><h3 class="grow" style="margin:0">${title}</h3><button class="btn sm primary" data-a="modal-close">Готово</button></div>
     <input class="search mt" placeholder="Поиск" data-input="pickerQ" value="${esc(p.q || '')}">
     <div class="list mt">${items.map((x) => {
@@ -1402,7 +1661,13 @@ function submitForm(form) {
       assignee = g('assigneeNew');
       if (!D.settings.people.includes(assignee)) D.settings.people.push(assignee);
     }
-    const data = { title: g('title'), assignee, status: g('status') || 'todo', start: g('start'), due: g('due'), parentId: g('parentId') || null, remindAt: g('remindAt'), important: f.get('important') === 'on', desc: g('desc') };
+    let projectId = g('projectId') || null;
+    if (g('projectNew')) {
+      const ex = D.projects.find((p) => p.name.toLowerCase() === g('projectNew').toLowerCase());
+      if (ex) projectId = ex.id;
+      else { const np = { id: uid('p'), name: g('projectNew'), color: PROJECT_COLORS[D.projects.length % PROJECT_COLORS.length], desc: '', archived: false, createdAt: now, updatedAt: now }; D.projects.push(np); projectId = np.id; }
+    }
+    const data = { title: g('title'), projectId, assignee, status: g('status') || 'todo', start: g('start'), due: g('due'), parentId: g('parentId') || null, remindAt: g('remindAt'), important: f.get('important') === 'on', desc: g('desc') };
     if (data.start && data.due && data.start > data.due) { toast('Начало позже срока — поменял местами'); [data.start, data.due] = [data.due, data.start]; }
     if (id) { Object.assign(task(id), data, { updatedAt: now }); saved = task(id); }
     else {
@@ -1411,6 +1676,12 @@ function submitForm(form) {
       D.tasks.push(saved);
     }
     finishForm('task', saved.id, !id);
+  } else if (kind === 'project') {
+    const data = { name: g('name'), color: g('color') || PROJECT_COLORS[0], desc: g('desc') };
+    if (id) data.archived = f.get('archived') === 'on';
+    if (id) { Object.assign(project(id), data, { updatedAt: now }); saved = project(id); }
+    else { saved = Object.assign({ id: uid('p'), archived: false, createdAt: now, updatedAt: now }, data); D.projects.push(saved); }
+    finishForm('project', saved.id, !id);
   } else if (kind === 'contact') {
     const data = { name: g('name'), company: g('company'), role: g('role'), phone: g('phone'), email: g('email'), nextContact: g('nextContact'), remind: f.get('remind') === 'on', tags: g('tags').split(',').map((x) => x.trim()).filter(Boolean), comment: g('comment'),
       birthday: g('birthday'), contacts: g('contacts'), photo: g('photo'), types: f.getAll('types'), statuses: f.getAll('statuses') };
@@ -1435,10 +1706,14 @@ function submitForm(form) {
     pushToDevice(saved);
     finishForm('event', saved.id, !id);
   } else if (kind === 'note') {
-    const data = { title: g('title'), body: f.get('body') || '', crmIds: g('crmId') ? [g('crmId')] : [], discussed: f.get('discussed') === 'on' };
+    const ed = $('[data-rte="body"]', form);
+    const html = sanitizeHtml(ed ? ed.innerHTML : '');
+    // html — оформление; body — простой текст (поиск, сводка, совместимость со старыми версиями)
+    const data = { title: g('title'), html, body: htmlToText(html), crmIds: g('crmId') ? [g('crmId')] : [], discussed: f.get('discussed') === 'on' };
     if (!data.title && !data.body.trim()) { toast('Заметка пустая'); return; }
     if (id) Object.assign(note(id), data, { updatedAt: now });
     else D.notes.push(Object.assign({ id: uid('n'), createdAt: now, updatedAt: now }, data));
+    clearDraft();
     save();
     toast('Заметка сохранена');
     closeSheet();
@@ -1446,6 +1721,7 @@ function submitForm(form) {
   }
 }
 function finishForm(type, id, created) {
+  clearDraft();
   save();
   ui.stack.pop();
   if (created) ui.stack.push({ type, id });
@@ -1509,14 +1785,16 @@ const ACTIONS = {
   edit: (el) => openSheet(el.dataset.type, el.dataset.id, { edit: true }),
   delete: (el) => {
     const { type, id } = el.dataset;
-    const names = { task: 'задачу', contact: 'карточку контакта', event: 'событие', note: 'заметку' };
+    const names = { task: 'задачу', contact: 'карточку контакта', event: 'событие', note: 'заметку', project: 'проект' };
     let extra = '';
     if (type === 'task' && subtasks(id).length) extra = ' Подзадачи останутся самостоятельными задачами.';
+    if (type === 'project' && tasksOfProject(id).length) extra = ' Задачи проекта сохранятся — просто без проекта.';
     confirmBox(`Удалить ${names[type]}?${extra}`, () => {
       if (type === 'task') removeTask(id);
       if (type === 'contact') removeContact(id);
       if (type === 'event') removeEvent(id);
       if (type === 'note') D.notes = D.notes.filter((n) => n.id !== id);
+      if (type === 'project') { removeProject(id); if (ui.tfProject === id) ui.tfProject = ''; }
       save();
       ui.stack = ui.stack.filter((s) => s.id !== id);
       render();
@@ -1538,14 +1816,42 @@ const ACTIONS = {
   contacted: (el) => {
     const c = contact(el.dataset.id);
     c.lastContact = today();
-    if (c.nextContact && c.nextContact <= today()) c.nextContact = '';
-    save(); render(); toast('Отмечено. Назначьте следующий контакт кнопками +д');
+    c.nextContact = '';
+    c.updatedAt = new Date().toISOString();
+    save(); render(); toast('Отмечено: связался. Новую дату можно назначить кнопками ниже');
   },
   'next-contact': (el) => {
     const c = contact(el.dataset.id);
     c.nextContact = ymd(addDays(new Date(), Number(el.dataset.val)));
-    save(); render(); toast('Следующий контакт: ' + fmtDate(c.nextContact, true));
+    c.updatedAt = new Date().toISOString();
+    save(); render(); toast(Number(el.dataset.val) === 0 ? 'Связаться сегодня' : 'Связаться завтра');
   },
+  'contact-date': (el) => {
+    const c = contact(el.dataset.id);
+    const def = c.nextContact && c.nextContact > today() ? c.nextContact : ymd(addDays(new Date(), 2));
+    modal(`<h3>Когда связаться: ${esc(c.name)}</h3>
+      <input type="date" class="search" id="contact-date-inp" min="${today()}" value="${def}">
+      <div class="row mt">${[[2, 'Послезавтра'], [7, 'Через неделю'], [14, 'Через 2 недели'], [30, 'Через месяц']].map(([n, l]) => `<button class="btn sm" data-a="contact-date-quick" data-val="${n}">${l}</button>`).join('')}</div>
+      <div class="form-actions mt"><button class="btn primary" data-a="contact-date-save" data-id="${c.id}">${icon('check')}Сохранить</button>${c.nextContact ? `<button class="btn" data-a="contact-date-clear" data-id="${c.id}">Убрать дату</button>` : ''}<button class="btn" data-a="modal-close">Отмена</button></div>`);
+    const inp = $('#contact-date-inp');
+    try { if (inp && inp.showPicker) inp.showPicker(); } catch (e) { /* */ }
+  },
+  'contact-date-quick': (el) => { $('#contact-date-inp').value = ymd(addDays(new Date(), Number(el.dataset.val))); },
+  'contact-date-save': (el) => {
+    const v = $('#contact-date-inp').value;
+    if (!v) { toast('Выберите дату'); return; }
+    const c = contact(el.dataset.id);
+    c.nextContact = v; c.updatedAt = new Date().toISOString();
+    save(); modal(null); render(); toast('Связаться: ' + fmtDate(v, true));
+  },
+  'contact-date-clear': (el) => { const c = contact(el.dataset.id); c.nextContact = ''; save(); modal(null); render(); toast('Дата снята'); },
+  'tasks-filter': (el) => {
+    ['tfCrm', 'tfPerson', 'tfStatus', 'tfDue'].forEach((k) => { ui[k] = ''; });
+    ui.tfProject = el.dataset.id || '';
+    go('tasks');
+  },
+  'tf-reset': () => { ['tfProject', 'tfCrm', 'tfPerson', 'tfStatus', 'tfDue'].forEach((k) => { ui[k] = ''; }); render(); },
+  'proj-arch': (el) => { ui.projArchived = el.dataset.id === '1'; render(); },
   'cal-sel': (el) => { ui.cal.sel = el.dataset.id; if (el.dataset.id.slice(0, 7) !== ui.cal.month) { ui.cal.month = el.dataset.id.slice(0, 7); loadDeviceEvents(); } render(); },
   'cal-month': (el) => {
     const [y, m] = ui.cal.month.split('-').map(Number);
@@ -1582,6 +1888,7 @@ const ACTIONS = {
   },
   'new-menu': () => modal(`<h3>Создать</h3><div class="list">
       <div class="item" data-a="new-close" data-type="task">${icon('tasks')}<div class="t">Задача</div></div>
+      <div class="item" data-a="new-close" data-type="project">${icon('folder')}<div class="t">Проект</div></div>
       <div class="item" data-a="new-close" data-type="event">${icon('cal')}<div class="t">Событие</div></div>
       <div class="item" data-a="new-close" data-type="contact">${icon('crm')}<div class="t">Контакт CRM</div></div>
       <div class="item" data-a="new-close" data-type="note">${icon('notes')}<div class="t">Заметка</div></div></div>`),
@@ -1627,8 +1934,11 @@ const ACTIONS = {
     save(); modal(null); render();
     toast('Восстановлено событий: ' + n);
   },
+  'folder-pick': () => { if (N) N.folderBackupPick(); },
+  'folder-now': () => { save(true); toast(N.folderBackupNow() ? 'Копия сохранена в папку' : 'Не удалось сохранить — проверьте папку'); render(); },
+  'folder-off': () => confirmBox('Выключить ежедневную копию в папку? Уже сохранённые файлы останутся.', () => { N.folderBackupClear(); render(); toast('Копия в папку выключена'); }, 'Выключить'),
   'backup-export': () => {
-    const name = 'upr-uchet-backup-' + today() + '.json';
+    const name = '管理会计-копия-' + today() + '.json';
     const txt = JSON.stringify(makeBackup(), null, 1);
     if (N) N.exportFile(txt, name, 'application/json');
     else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = name; a.click(); }
@@ -1663,6 +1973,7 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('[data-msel-new]')) { ev.preventDefault(); ACTIONS['msel-add'](ev.target); }
 });
 document.addEventListener('change', (ev) => {
+  if (ev.target.matches && ev.target.matches('[data-a="folder-keep"]')) { N.folderBackupKeep(Number(ev.target.value)); toast('Сохранено'); return; }
   const box = ev.target.closest && ev.target.closest('.msel');
   if (box && ev.target.type === 'checkbox') mselRefresh(box);
 });
@@ -1685,6 +1996,12 @@ document.addEventListener('submit', (ev) => {
   submitForm(form);
 });
 
+document.addEventListener('input', (ev) => {
+  if (ev.target.closest && ev.target.closest('#sheet form[data-form]')) storeDraft();
+}, true);
+document.addEventListener('change', (ev) => {
+  if (ev.target.closest && ev.target.closest('#sheet form[data-form]')) storeDraft();
+}, true);
 document.addEventListener('input', (ev) => {
   const el = ev.target;
   const k = el.dataset.input;
@@ -1739,6 +2056,11 @@ function addDemo() {
   const t6 = t({ title: 'Продлить кредитную линию', due: d(6), crmIds: [c3.id] });
   const t7 = t({ title: 'Отчёт партнёру за месяц', due: d(0) });
   D.tasks.push(p1, s1, s2, s3, p2, s4, s5, t6, t7);
+  const pr1 = { id: uid('p'), name: 'Поставка «Вектору»', color: '#2f5bea', desc: 'Первая партия и договор', archived: false, createdAt: now, updatedAt: now };
+  const pr2 = { id: uid('p'), name: 'Новый сайт', color: '#1f9d5a', desc: '', archived: false, createdAt: now, updatedAt: now };
+  D.projects.push(pr1, pr2);
+  [p1, s1, s2, s3, t6].forEach((x) => { x.projectId = pr1.id; });
+  [p2, s4, s5].forEach((x) => { x.projectId = pr2.id; });
   D.notes.push(
     { id: uid('n'), title: 'Скидка за объём', body: 'Предложить 5% при заказе от 100 шт.\nСпросить про сроки оплаты.', crmIds: [c1.id], discussed: false, createdAt: now, updatedAt: now },
     { id: uid('n'), title: 'Идеи по сайту', body: 'Каталог с фильтрами, онлайн-заявка.', crmIds: [c2.id], discussed: false, createdAt: now, updatedAt: now },
@@ -1750,6 +2072,7 @@ function addDemo() {
  * ======================================================= */
 load();
 render();
+restoreDraftAfterRestart();
 syncAlarms();
 if (N && !D.meta.welcomed) {
   D.meta.welcomed = true;

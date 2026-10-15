@@ -15,6 +15,7 @@
   --ok-soft: #e3f6ec;
   --violet: #7c4ddb;
   --violet-soft: #f0e9ff;
+  --pink: #d6409f;
   --weekend: rgba(120, 130, 160, .07);
   --radius: 14px;
   --shadow: 0 1px 2px rgba(20, 24, 40, .06), 0 4px 14px rgba(20, 24, 40, .05);
@@ -41,6 +42,7 @@
     --ok-soft: #173326;
     --violet: #a785ff;
     --violet-soft: #2c2445;
+    --pink: #f06cbd;
     --weekend: rgba(255, 255, 255, .03);
     --shadow: 0 1px 2px rgba(0, 0, 0, .3);
   }
@@ -381,3 +383,72 @@ pre.summary { white-space: pre-wrap; background: var(--panel-2); border-radius: 
 .field .msel-opt { display: flex; margin: 0; font-size: 15px; color: var(--text, inherit); }
 .field .msel-opt input { min-height: 0; width: 20px; height: 20px; padding: 0; }
 .field .msel-add input { min-height: 36px; padding: 6px 10px; }
+
+/* ---------- 1.4: дни рождения ---------- */
+.cal-d .dots i.bd { background: var(--pink); }
+.ev-bar.bd { background: var(--pink); }
+.ev-time svg { width: 20px; height: 20px; color: var(--pink); }
+
+/* ---------- Проекты: дашборд и карточки ---------- */
+.pgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 600px) { .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .pgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.pcard { --pc: var(--accent); background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 16px 14px 20px; position: relative; cursor: pointer; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.pcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--pc); }
+.pcard:active { transform: scale(.995); }
+.pcard.archived { opacity: .7; }
+.pc-h { display: flex; align-items: center; gap: 8px; }
+.pc-name { font-size: 19px; font-weight: 700; letter-spacing: -.01em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pc-cat { border-radius: 12px; padding: 10px 12px; background: var(--panel-2); display: flex; flex-direction: column; gap: 3px; }
+.pc-cat .l { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.pc-cat .v { font-size: 14px; color: var(--muted); }
+.pc-cat .v b { font-size: 22px; font-weight: 750; color: var(--text); }
+.pc-cat.todo.hot { background: var(--accent-soft); }
+.pc-cat.todo.hot .l, .pc-cat.todo.hot .v b { color: var(--accent); }
+.pc-cat.od.hot { background: var(--danger-soft); }
+.pc-cat.od.hot .l, .pc-cat.od.hot .v b { color: var(--danger); }
+.pc-prog { --pc: var(--accent); height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.pc-prog i { display: block; height: 100%; background: var(--pc); border-radius: 3px; }
+.pcard .pc-prog { background: var(--line); }
+.swatch { cursor: pointer; }
+.swatch input { position: absolute; opacity: 0; pointer-events: none; }
+.swatch i { display: block; width: 32px; height: 32px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 1px var(--line); }
+.swatch input:checked + i { border-color: var(--panel); box-shadow: 0 0 0 2px var(--text); }
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+
+/* ---------- Фильтры задач ---------- */
+.tf-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin: -4px 0 12px; scrollbar-width: none; }
+.tf-bar::-webkit-scrollbar { display: none; }
+.tf-bar select.tf { flex: none; max-width: 190px; min-height: 34px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 10px; font-size: 13px; color: var(--muted); }
+.tf-bar select.tf.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tf-bar .btn { flex: none; }
+
+/* ---------- «Связаться»: сегодня / +1 д / дата ---------- */
+.cbtn.on.green { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+.cbtn.on.amber { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.cbtn.on.blue { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.chip.green svg, .chip.amber svg, .chip.blue svg, .chip.red svg { opacity: .9; }
+
+/* ---------- Редактор заметок ---------- */
+.rte-wrap { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.rte-bar { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); border-radius: 12px 12px 0 0; z-index: 2; }
+.rte-btn { width: 38px; height: 36px; border: 0; background: transparent; border-radius: 8px; display: grid; place-items: center; color: var(--text); cursor: pointer; font-size: 15px; }
+.rte-btn svg { width: 18px; height: 18px; }
+.rte-btn:hover { background: var(--panel-2); }
+.rte-btn.on { background: var(--accent-soft); color: var(--accent); }
+.rte-sep { width: 1px; background: var(--line); margin: 6px 3px; }
+.rte { min-height: 220px; padding: 12px 14px; outline: none; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.rte:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rte p { margin: 0 0 6px; }
+.rte h1 { font-size: 22px; margin: 10px 0 6px; line-height: 1.25; }
+.rte h2 { font-size: 18px; margin: 8px 0 4px; line-height: 1.3; }
+.rte ul, .rte ol { margin: 4px 0 8px; padding-left: 26px; }
+.rte li { margin: 2px 0; }
+.rte ol[type="a"] { list-style-type: lower-alpha; }
+.rte ul.checklist { list-style: none; padding-left: 4px; }
+.rte ul.checklist > li { position: relative; padding-left: 30px; min-height: 24px; }
+.rte ul.checklist > li::before { content: ""; position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border: 2px solid var(--muted); border-radius: 5px; box-sizing: border-box; cursor: pointer; }
+.rte ul.checklist > li[data-checked="true"]::before { background: var(--ok) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/13px no-repeat; border-color: var(--ok); }
+.rte ul.checklist > li[data-checked="true"] { color: var(--muted); text-decoration: line-through; }

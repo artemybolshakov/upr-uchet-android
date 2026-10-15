@@ -12,6 +12,7 @@ public class DailyReceiver extends BroadcastReceiver {
         new Thread(() -> {
             try {
                 Store.autoBackup(context, false);
+                FolderBackup.run(context, false);
                 CalendarSync.snapshot(context);
                 Alarms.rescheduleAll(context);
             } finally {

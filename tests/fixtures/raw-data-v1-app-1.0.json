@@ -1,0 +1,7 @@
+{"schema":1,"meta":{"createdAt":"2026-09-01T10:00:00.000Z","updatedAt":"2026-09-02T10:00:00.000Z","appVersion":"1.0.0"},
+"settings":{"me":"Я","people":["Я","Анна"],"statuses":[{"id":"todo","name":"К выполнению"},{"id":"doing","name":"В работе"},{"id":"wait","name":"Ожидание"},{"id":"done","name":"Готово"}],"defaultRemind":15,"importantRemind":[60,15,0],"taskRemindTime":"10:00","deviceCalendarId":null,"showDeviceCalendars":[],"showDeviceEvents":true,"summary":{"home":true,"overdue":true,"today":true,"week":true,"people":true,"events":true,"crm":true,"notes":false},"tasksView":"kanban","kanbanGroup":"people","linksGroup":"parents","ganttScale":"day"},
+"tasks":[{"id":"t1","title":"Подготовить договор","assignee":"Анна","status":"doing","start":"","due":"2026-09-10","crmIds":["c1"],"eventIds":["e1"],"deps":[],"parentId":null,"createdAt":"2026-09-01T10:00:00.000Z"},
+ {"id":"t2","title":"Подзадача без массивов","assignee":"Я","status":"todo","due":"","parentId":"t1"}],
+"contacts":[{"id":"c1","name":"Пётр Петров","company":"ООО Вектор","role":"Директор","phone":"+79000000000","email":"p@v.ru","tags":["клиент"],"nextContact":"2026-09-05","remind":true,"comment":"Важный клиент"}],
+"events":[{"id":"e1","title":"Встреча","start":"2026-09-05T15:00","end":"2026-09-05T16:00","allDay":false,"important":true,"remind":[],"crmIds":["c1"]}],
+"notes":[{"id":"n1","title":"Темы","body":"Цена\nСроки","crmIds":["c1"],"discussed":false}]}
