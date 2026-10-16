@@ -68,7 +68,7 @@ public final class Bridge {
     // ---------- Доступ с компьютера по Wi-Fi ----------
 
     @JavascriptInterface
-    public String webStatus() { return WebAccessService.statusJson(); }
+    public String webStatus() { WebAccessService.ctx = a.getApplicationContext(); return WebAccessService.statusJson(); }
 
     @JavascriptInterface
     public void webStart() {
@@ -260,6 +260,14 @@ public final class Bridge {
 
     @JavascriptInterface
     public boolean deleteDeviceEvent(double id) { return CalendarSync.delete(a, (long) id); }
+
+    @JavascriptInterface
+    public double saveDeviceEvent(String json) { return CalendarSync.saveDeviceEvent(a, json); }
+
+    @JavascriptInterface
+    public boolean deleteDeviceEventEx(double id, String mode, double originalBegin) {
+        return CalendarSync.deleteDeviceEvent(a, (long) id, mode, (long) originalBegin);
+    }
 
     @JavascriptInterface
     public boolean snapshotNow() { return CalendarSync.snapshot(a); }

@@ -13,8 +13,8 @@
  */
 'use strict';
 
-var APP_VERSION = '1.4.0';
-var SCHEMA = 2;
+var APP_VERSION = '1.5.0';
+var SCHEMA = 3;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
 
 function emptyData() {
@@ -44,6 +44,12 @@ function emptyData() {
       contactTypes: ['Инвестор', 'Ангел', 'Партнер', 'Инфлюенсер', 'Издатель', 'Разработчик', 'Медиа', 'Музыка', 'Фонд', 'ГОС', 'Образование', 'Сотрудник'],
       contactStatuses: ['Надо освежить', 'Работаем', 'Диалог', 'Архив молчаливый', 'Архив жесткий отказ', 'Поиск денег прямо сейчас'],
       birthdayRemind: true,
+      projectCategories: [],
+      projectsGroup: 'category',
+      projectsSort: 'attention',
+      calView: 'month',
+      kanbanOrder: {},
+      newEventTarget: 'app',
     },
     tasks: [],
     contacts: [],
@@ -84,6 +90,14 @@ var MIGRATIONS = {
     (d.tasks || []).forEach(function (t) { if (t.projectId === undefined) t.projectId = null; });
     (d.notes || []).forEach(function (n) { if (n.html == null && n.body) n.html = textToHtml(n.body); });
     d.schema = 2;
+    return d;
+  },
+  // v2 → v3: категории проектов (виды деятельности)
+  2: function (d) {
+    if (!d.settings || typeof d.settings !== 'object') d.settings = {};
+    if (!Array.isArray(d.settings.projectCategories)) d.settings.projectCategories = [];
+    (d.projects || []).forEach(function (p) { if (p && p.category == null) p.category = ''; });
+    d.schema = 3;
     return d;
   },
 };
@@ -134,7 +148,12 @@ function migrate(raw) {
     if (!p.id) p.id = 'p' + Math.random().toString(36).slice(2, 10);
     p.name = p.name == null ? 'Проект' : String(p.name);
     p.archived = !!p.archived;
+    if (p.category == null) p.category = '';
+    p.category = String(p.category);
   });
+  if (!Array.isArray(d.settings.projectCategories)) d.settings.projectCategories = [];
+  if (!d.settings.kanbanOrder || typeof d.settings.kanbanOrder !== 'object' || Array.isArray(d.settings.kanbanOrder)) d.settings.kanbanOrder = {};
+  d.settings.projectCategories = d.settings.projectCategories.filter(function (c) { return typeof c === 'string' && c; });
   // Ссылки на удалённые проекты не ломают интерфейс
   var pids = {};
   d.projects.forEach(function (p) { pids[p.id] = true; });

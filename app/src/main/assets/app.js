@@ -75,6 +75,7 @@ const I = {
   folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>',
   gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M12 8S10.5 3 8 3a2.5 2.5 0 0 0 0 5M12 8s1.5-5 4-5a2.5 2.5 0 0 1 0 5"/>',
   filter: '<path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/>',
+  cols: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="14" rx="1.5"/>',
 };
 const icon = (n, cls) => `<svg class="${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n] || ''}</svg>`;
 
@@ -178,6 +179,48 @@ function removeProject(id) {
   D.projects = D.projects.filter((p) => p.id !== id);
   D.tasks.forEach((t) => { if (t.projectId === id) t.projectId = null; });
 }
+/* Категории проектов (виды деятельности) */
+const projectCategory = (p) => (p && p.category ? p.category : '');
+function projectCategories() {
+  const set = new Set(D.settings.projectCategories || []);
+  D.projects.forEach((p) => { if (p.category) set.add(p.category); });
+  return Array.from(set);
+}
+const PROJECT_SORTS = [['attention', 'Сначала требующие внимания'], ['name', 'По названию'], ['progress', 'По прогрессу'], ['tasks', 'По числу открытых задач'], ['new', 'Сначала новые']];
+function sortProjects(items, mode) {
+  const w = (x) => (x.st.overdueTasks.length + x.st.overdueCrm.length) * 1000 + x.st.todoTasks.length + x.st.todoCrm.length;
+  const pct = (x) => (x.st.total ? x.st.done / x.st.total : 0);
+  const byName = (a, b) => a.p.name.localeCompare(b.p.name, 'ru');
+  const f = {
+    attention: (a, b) => w(b) - w(a) || byName(a, b),
+    name: byName,
+    progress: (a, b) => pct(b) - pct(a) || byName(a, b),
+    tasks: (a, b) => (b.st.todoTasks.length + b.st.overdueTasks.length) - (a.st.todoTasks.length + a.st.overdueTasks.length) || byName(a, b),
+    new: (a, b) => ((b.p.createdAt || '') < (a.p.createdAt || '') ? -1 : (b.p.createdAt || '') > (a.p.createdAt || '') ? 1 : byName(a, b)),
+  }[mode] || byName;
+  return items.slice().sort(f);
+}
+/* Группы карточек проектов по категориям: [{name, items}] в порядке списка категорий */
+function groupProjects(items) {
+  if (D.settings.projectsGroup === 'none') return [{ name: '', items }];
+  const order = projectCategories();
+  const groups = order.map((c) => ({ name: c, items: items.filter((x) => projectCategory(x.p) === c) })).filter((g) => g.items.length);
+  const rest = items.filter((x) => !projectCategory(x.p));
+  if (rest.length) groups.push({ name: groups.length ? 'Без категории' : '', items: rest });
+  return groups;
+}
+function projectToolbar() {
+  const s = D.settings;
+  return `<div class="row" style="margin-bottom:12px;gap:8px">
+    <div class="seg">${[['category', 'По категориям'], ['none', 'Все вместе']].map(([k, n]) => `<button class="${s.projectsGroup === k ? 'on' : ''}" data-a="set" data-key="projectsGroup" data-val="${k}">${n}</button>`).join('')}</div>
+    <div class="ptools-sel"><select class="tf" data-setting="projectsSort" aria-label="Сортировка">${PROJECT_SORTS.map(([k, n]) => `<option value="${k}" ${s.projectsSort === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    ${projectCategories().length ? `<select class="tf ${ui.projCat ? 'on' : ''}" data-change="projCat" aria-label="Категория"><option value="">Категория: все</option>${projectCategories().map((c) => `<option ${ui.projCat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="—" ${ui.projCat === '—' ? 'selected' : ''}>Без категории</option></select>` : ''}</div>
+  </div>`;
+}
+function projectGrid(items, opts) {
+  return groupProjects(items).map((g) => `${g.name ? `<div class="section-title pcat-title">${esc(g.name)} <span class="muted small">${g.items.length}</span></div>` : ''}<div class="pgrid">${g.items.map((x) => projectCard(x.p, x.st, opts)).join('')}</div>`).join('');
+}
+
 function projectChip(pid) {
   const p = project(pid);
   return p ? `<span class="chip"><i class="dot" style="background:${esc(p.color || colorFor(p.name))}"></i>${esc(p.name)}</span>` : '';
@@ -339,6 +382,7 @@ const ui = {
   taskQuery: '',
   tfProject: '', tfCrm: '', tfPerson: '', tfStatus: '', tfDue: '', // фильтры задач
   projArchived: false,
+  projCat: '',
   showDone: false,
   cal: { month: today().slice(0, 7), sel: today() },
   devEvents: [],
@@ -348,10 +392,10 @@ const ui = {
 
 const TABS = [
   { id: 'home', name: 'Мои дела', icon: 'home' },
-  { id: 'tasks', name: 'Задачи', icon: 'tasks' },
-  { id: 'projects', name: 'Проекты', icon: 'folder' },
-  { id: 'crm', name: 'CRM', icon: 'crm' },
   { id: 'calendar', name: 'Календарь', icon: 'cal' },
+  { id: 'projects', name: 'Проекты', icon: 'folder' },
+  { id: 'tasks', name: 'Задачи', icon: 'tasks' },
+  { id: 'crm', name: 'CRM', icon: 'crm' },
   { id: 'notes', name: 'Заметки', icon: 'notes' },
 ];
 
@@ -390,6 +434,13 @@ function render() {
 }
 
 function afterRender() {
+  const tg = $('#tg-scroll');
+  if (tg) {
+    const key = calView() + ':' + calTitle();
+    tg.scrollTop = ui.tgKey === key ? ui.tgY : Number(tg.dataset.y) || 0;
+    ui.tgKey = key; ui.tgY = tg.scrollTop;
+    tg.addEventListener('scroll', () => { ui.tgY = tg.scrollTop; }, { passive: true });
+  }
   if (ui.tab === 'tasks' && D.settings.tasksView === 'links') drawLinks();
   if (ui.tab === 'tasks' && D.settings.tasksView === 'gantt') scrollGanttToToday();
 }
@@ -662,6 +713,10 @@ function noteItem(n) {
     </div>
   </div>`;
 }
+// Строка поиска с крестиком «очистить»
+function searchBox(key, placeholder, value, cls) {
+  return `<div class="search-wrap ${cls || ''}"><input class="search" placeholder="${esc(placeholder)}" data-input="${key}" value="${esc(value || '')}">${value ? `<button type="button" class="search-x" data-a="clear-input" data-id="${key}" aria-label="Очистить">${icon('close')}</button>` : ''}</div>`;
+}
 const listOf = (items, fn, emptyText) => items.length ? `<div class="list">${items.map(fn).join('')}</div>` : `<div class="list"><div class="empty">${emptyText}</div></div>`;
 
 /* =========================================================
@@ -721,7 +776,7 @@ function projectCard(p, st, opts) {
   const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
   const attrs = p ? `data-a="open" data-type="project" data-id="${p.id}"` : `data-a="tasks-filter" data-id="none"`;
   return `<div class="pcard ${p && p.archived ? 'archived' : ''}" style="--pc:${esc(color)}" ${attrs}>
-    <div class="pc-h"><span class="pc-name">${esc(p ? p.name : 'Без проекта')}</span>${p && p.archived ? '<span class="chip">архив</span>' : ''}</div>
+    <div class="pc-h"><span class="pc-name">${esc(p ? p.name : 'Без проекта')}</span>${p && p.category && D.settings.projectsGroup === 'none' ? `<span class="chip">${esc(p.category)}</span>` : ''}${p && p.archived ? '<span class="chip">архив</span>' : ''}</div>
     ${p && p.desc && o.desc ? `<div class="sub ellipsis">${esc(p.desc)}</div>` : ''}
     <div class="pc-cats">
       ${cat('todo', 'К выполнению', n(st.todoTasks), n(st.todoCrm))}
@@ -731,14 +786,12 @@ function projectCard(p, st, opts) {
   </div>`;
 }
 function projectDashboard() {
-  const items = D.projects.filter((p) => !p.archived).map((p) => ({ p, st: projectStats(p.id) }));
-  const weight = (x) => (x.st.overdueTasks.length + x.st.overdueCrm.length) * 1000 + x.st.todoTasks.length + x.st.todoCrm.length;
-  items.sort((a, b) => weight(b) - weight(a) || a.p.name.localeCompare(b.p.name, 'ru'));
+  const items = sortProjects(D.projects.filter((p) => !p.archived).map((p) => ({ p, st: projectStats(p.id) })), D.settings.projectsSort);
   const none = projectStats(null);
   const showNone = none.todoTasks.length + none.overdueTasks.length + none.todoCrm.length + none.overdueCrm.length > 0;
-  const cards = items.map((x) => projectCard(x.p, x.st)).join('') + (showNone ? projectCard(null, none) : '');
+  const cards = projectGrid(items) + (showNone ? `${D.settings.projectsGroup !== 'none' && items.length ? '<div class="section-title pcat-title">Вне проектов</div>' : ''}<div class="pgrid">${projectCard(null, none)}</div>` : '');
   return `<div class="section-title">Проекты<button class="btn sm right" data-a="new" data-type="project">${icon('plus')}Проект</button></div>
-    ${cards ? `<div class="pgrid">${cards}</div>` : `<div class="list"><div class="empty">Проектов пока нет. Проект объединяет задачи — а через задачи и CRM-контакты. <br><button class="btn primary mt" data-a="new" data-type="project">${icon('plus')}Создать проект</button></div></div>`}`;
+    ${cards ? `<div class="pgroups">${cards}</div>` : `<div class="list"><div class="empty">Проектов пока нет. Проект объединяет задачи — а через задачи и CRM-контакты. <br><button class="btn primary mt" data-a="new" data-type="project">${icon('plus')}Создать проект</button></div></div>`}`;
 }
 
 /* ---------- Задачи ---------- */
@@ -772,7 +825,13 @@ function taskFilterBar() {
   const crmUsed = contactsOfTasks(D.tasks).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   const sel = (key, label, opts) => `<select class="tf ${ui[key] ? 'on' : ''}" data-change="${key}" aria-label="${label}">${opt('', label + ': все', ui[key])}${opts}</select>`;
   return `<div class="tf-bar">
-    ${sel('tfProject', 'Проект', projects.map((p) => opt(p.id, p.name + (p.archived ? ' (архив)' : ''), ui.tfProject)).join('') + opt('none', 'Без проекта', ui.tfProject))}
+    ${sel('tfProject', 'Проект', (() => {
+      const cats = projectCategories();
+      const one = (p) => opt(p.id, p.name + (p.archived ? ' (архив)' : ''), ui.tfProject);
+      if (!cats.length) return projects.map(one).join('');
+      return cats.map((c) => { const ps = projects.filter((p) => p.category === c); return ps.length ? `<optgroup label="${esc(c)}">${ps.map(one).join('')}</optgroup>` : ''; }).join('')
+        + (projects.some((p) => !p.category) ? `<optgroup label="Без категории">${projects.filter((p) => !p.category).map(one).join('')}</optgroup>` : '');
+    })() + opt('none', 'Без проекта', ui.tfProject))}
     ${sel('tfCrm', 'CRM', crmUsed.map((c) => opt(c.id, c.name, ui.tfCrm)).join('') + opt('none', 'Без контакта', ui.tfCrm))}
     ${sel('tfPerson', 'Исполнитель', allPeople().map((x) => opt(x, x, ui.tfPerson)).join('') + opt('—', 'Без исполнителя', ui.tfPerson))}
     ${sel('tfStatus', 'Статус', D.settings.statuses.map((x) => opt(x.id, x.name, ui.tfStatus)).join(''))}
@@ -797,7 +856,7 @@ function dueBuckets() {
     { id: 'pastdone', name: 'Выполнено (прошлые)', test: (x) => x.due && x.due < t && isDone(x), preset: {} },
   ];
 }
-function taskGroups(mode, tasks) {
+function baseTaskGroups(mode, tasks) {
   if (mode === 'project') {
     return D.projects.filter((p) => !p.archived || tasks.some((t) => t.projectId === p.id))
       .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
@@ -816,12 +875,36 @@ function taskGroups(mode, tasks) {
   return dueBuckets().map((b) => ({ id: b.id, name: b.name, items: tasks.filter(b.test), preset: b.preset })).filter((g) => g.items.length || ['today', 'tomorrow', 'week'].includes(g.id));
 }
 
+/* Пользовательский порядок колонок (канбан и «Связи»): D.settings.kanbanOrder[режим] = [id колонок] */
+function taskGroups(mode, tasks) { return orderGroups(mode, baseTaskGroups(mode, tasks)); }
+function orderGroups(mode, groups) {
+  const ord = (D.settings.kanbanOrder || {})[mode];
+  if (!Array.isArray(ord) || !ord.length) return groups;
+  const idx = new Map(ord.map((id, i) => [id, i]));
+  return groups.map((g, i) => ({ g, i })).sort((a, b) => {
+    const ia = idx.has(a.g.id) ? idx.get(a.g.id) : 1e6 + a.i, ib = idx.has(b.g.id) ? idx.get(b.g.id) : 1e6 + b.i;
+    return ia - ib;
+  }).map((x) => x.g);
+}
+// Переставить колонку: ids — порядок, видимый на экране; скрытые сейчас колонки сохраняют своё место в конце списка
+function moveColumn(mode, ids, fromId, toIndex) {
+  const cur = ids.filter((x) => x !== fromId);
+  cur.splice(Math.max(0, Math.min(cur.length, toIndex)), 0, fromId);
+  const prev = ((D.settings.kanbanOrder || {})[mode] || []).filter((x) => !cur.includes(x));
+  if (!D.settings.kanbanOrder || typeof D.settings.kanbanOrder !== 'object') D.settings.kanbanOrder = {};
+  D.settings.kanbanOrder[mode] = cur.concat(prev);
+  save();
+  render();
+}
+
 SCREENS.tasks = function () {
   const v = D.settings.tasksView;
   const views = [['kanban', 'Канбан'], ['links', 'Связи'], ['gantt', 'Гант'], ['list', 'Список']];
   let groupSel = '';
   if (v === 'kanban') {
-    groupSel = `<div class="seg">${[['people', 'Исполнители'], ['project', 'Проекты'], ['due', 'Сроки'], ['status', 'Статусы']].map(([k, n]) => `<button class="${D.settings.kanbanGroup === k ? 'on' : ''}" data-a="set" data-key="kanbanGroup" data-val="${k}">${n}</button>`).join('')}</div>`;
+    groupSel = `<div class="seg">${[['people', 'Исполнители'], ['project', 'Проекты'], ['due', 'Сроки'], ['status', 'Статусы']].map(([k, n]) => `<button class="${D.settings.kanbanGroup === k ? 'on' : ''}" data-a="set" data-key="kanbanGroup" data-val="${k}">${n}</button>`).join('')}</div>
+      <button class="btn sm ${ui.kOrder ? 'primary' : ''}" data-a="k-order" title="Порядок колонок">${icon('cols')}${ui.kOrder ? 'Готово' : 'Порядок колонок'}</button>
+      ${ui.kOrder && ((D.settings.kanbanOrder || {})[D.settings.kanbanGroup] || []).length ? '<button class="btn sm" data-a="k-order-reset">Сбросить</button>' : ''}`;
   } else if (v === 'links') {
     groupSel = `<div class="seg">${[['parents', 'Подзадачи'], ['people', 'Исполнители'], ['project', 'Проекты'], ['due', 'Сроки']].map(([k, n]) => `<button class="${D.settings.linksGroup === k ? 'on' : ''}" data-a="set" data-key="linksGroup" data-val="${k}">${n}</button>`).join('')}</div>`;
   } else if (v === 'gantt') {
@@ -844,7 +927,7 @@ SCREENS.tasks = function () {
       ${groupSel}
     </div>
     <div class="row" style="margin-bottom:12px">
-      <input class="search grow" placeholder="Поиск задач" data-input="taskQuery" value="${esc(ui.taskQuery)}">
+      ${searchBox('taskQuery', 'Поиск задач', ui.taskQuery, 'grow')}
       <label class="toggle" style="padding:6px 10px"><input type="checkbox" data-a="toggle-done" ${ui.showDone ? 'checked' : ''}><span class="small">Готовые</span></label>
     </div>
     ${taskFilterBar()}
@@ -853,10 +936,12 @@ SCREENS.tasks = function () {
 
 function kanban(tasks) {
   const groups = taskGroups(D.settings.kanbanGroup, tasks);
-  return `<div class="board">${groups.map((g) => {
+  const ids = groups.map((g) => g.id);
+  return `${ui.kOrder ? '<div class="sub" style="margin:-4px 0 8px">Перетащите колонку за ⠿ или двигайте стрелками ‹ ›. Порядок запоминается отдельно для исполнителей, проектов, сроков и статусов.</div>' : ''}
+    <div class="board ${ui.kOrder ? 'ordering' : ''}" data-ids='${esc(JSON.stringify(ids))}'>${groups.map((g, gi) => {
     const items = g.items.slice().sort(sortByDue);
-    return `<div class="col">
-      <div class="col-h">${g.color ? `<i class="dot" style="background:${g.color}"></i>` : ''}<span class="grow ellipsis">${esc(g.name)}</span><span class="cnt">${items.length}</span>
+    return `<div class="col" data-col="${esc(g.id)}">
+      <div class="col-h"><span class="col-grip" data-grip="${esc(g.id)}" title="Перетащить колонку" aria-label="Перетащить колонку">⠿</span>${ui.kOrder ? `<button class="icon-btn col-mv" data-a="k-move" data-id="${esc(g.id)}" data-val="${gi - 1}" ${gi === 0 ? 'disabled' : ''} aria-label="Левее">${icon('back')}</button>` : ''}${g.color ? `<i class="dot" style="background:${g.color}"></i>` : ''}<span class="grow ellipsis">${esc(g.name)}</span><span class="cnt">${items.length}</span>${ui.kOrder ? `<button class="icon-btn col-mv" data-a="k-move" data-id="${esc(g.id)}" data-val="${gi + 1}" ${gi === groups.length - 1 ? 'disabled' : ''} aria-label="Правее" style="transform:scaleX(-1)">${icon('back')}</button>` : ''}
         <button class="icon-btn" style="width:30px;height:30px" data-a="new" data-type="task" data-preset='${esc(JSON.stringify(Object.assign(ui.tfProject && ui.tfProject !== 'none' ? { projectId: ui.tfProject } : {}, g.preset || {})))}' aria-label="Добавить">${icon('plus')}</button></div>
       ${items.map(kcard).join('') || '<div class="empty small">Пусто</div>'}
     </div>`;
@@ -1009,14 +1094,16 @@ function drawLinks() {
 /* ---------- Проекты ---------- */
 SCREENS.projects = function () {
   const arch = ui.projArchived;
-  const list = D.projects.filter((p) => !!p.archived === arch).map((p) => ({ p, st: projectStats(p.id) }))
-    .sort((a, b) => a.p.name.localeCompare(b.p.name, 'ru'));
+  const list = sortProjects(D.projects.filter((p) => !!p.archived === arch)
+    .filter((p) => !ui.projCat || (ui.projCat === '—' ? !p.category : p.category === ui.projCat))
+    .map((p) => ({ p, st: projectStats(p.id) })), D.settings.projectsSort);
   const archCount = D.projects.filter((p) => p.archived).length;
   const none = projectStats(null);
   return `<div class="head"><h1>Проекты</h1><button class="btn primary" data-a="new" data-type="project">${icon('plus')}<span>Проект</span></button></div>
     <div class="sub" style="margin:-4px 0 10px">Проект объединяет задачи. CRM-контакты попадают в проект через его задачи.</div>
-    <div class="seg" style="margin-bottom:12px"><button class="${!arch ? 'on' : ''}" data-a="proj-arch" data-id="0">Активные</button><button class="${arch ? 'on' : ''}" data-a="proj-arch" data-id="1">Архив${archCount ? ' · ' + archCount : ''}</button></div>
-    ${list.length ? `<div class="pgrid">${list.map((x) => projectCard(x.p, x.st, { desc: true })).join('')}${!arch && none.total ? projectCard(null, none) : ''}</div>`
+    <div class="seg" style="margin-bottom:10px"><button class="${!arch ? 'on' : ''}" data-a="proj-arch" data-id="0">Активные</button><button class="${arch ? 'on' : ''}" data-a="proj-arch" data-id="1">Архив${archCount ? ' · ' + archCount : ''}</button></div>
+    ${projectToolbar()}
+    ${list.length ? `<div class="pgroups">${projectGrid(list, { desc: true })}${!arch && none.total && !ui.projCat ? `${D.settings.projectsGroup !== 'none' ? '<div class="section-title pcat-title">Вне проектов</div>' : ''}<div class="pgrid">${projectCard(null, none)}</div>` : ''}</div>`
       : `<div class="list"><div class="empty">${arch ? 'В архиве пусто' : 'Проектов пока нет. Создайте первый — и привязывайте к нему задачи.'}</div></div>`}`;
 };
 
@@ -1037,7 +1124,7 @@ SCREENS.crm = function () {
   });
   const f = [['all', 'Все'], ['overdue', 'Просрочены'], ['today', 'Сегодня'], ['tasks', 'С задачами']];
   return `<div class="head"><h1>CRM</h1><button class="btn primary" data-a="new" data-type="contact">${icon('plus')}<span>Контакт</span></button></div>
-    <input class="search" placeholder="Поиск: имя, компания, телефон, тег" data-input="crmQuery" value="${esc(ui.crmQuery)}">
+    ${searchBox('crmQuery', 'Поиск: имя, компания, телефон, тег', ui.crmQuery)}
     <div class="seg mt">${f.map(([k, n]) => `<button class="${ui.crmFilter === k ? 'on' : ''}" data-a="crm-filter" data-id="${k}">${n}</button>`).join('')}</div>
     <div class="crm-sel mt" style="margin-bottom:12px">
       <select data-change="crmType"><option value="">Тип: все</option>${D.settings.contactTypes.map((x) => `<option ${ui.crmType === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
@@ -1052,9 +1139,7 @@ function loadDeviceEvents(force) {
   try {
     const p = JSON.parse(N.permissions() || '{}');
     if (!p.calendar) { ui.devEvents = []; return; }
-    const [y, m] = ui.cal.month.split('-').map(Number);
-    const from = new Date(y, m - 1, 1 - 7).getTime();
-    const to = new Date(y, m, 1 + 14).getTime();
+    const [from, to] = calRange();
     const ids = (D.settings.showDeviceCalendars || []).join(',');
     const linked = new Set(D.events.map((e) => String(e.deviceId || '')));
     ui.devEvents = JSON.parse(N.deviceEvents(from, to, ids) || '[]').filter((e) => !linked.has(String(e.eventId)));
@@ -1068,48 +1153,179 @@ function devEventsOn(day) {
     return s <= day && en >= day;
   });
 }
-SCREENS.calendar = function () {
+/* ---------- Календарь: день / неделя / месяц / год ---------- */
+const CAL_VIEWS = [['day', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год']];
+const calView = () => (CAL_VIEWS.some(([k]) => k === D.settings.calView) ? D.settings.calView : 'month');
+function weekStart(dayStr) { const d = parseDate(dayStr); return addDays(d, -((d.getDay() + 6) % 7)); }
+// диапазон дат текущего вида (для загрузки событий календаря телефона)
+function calRange() {
+  const v = calView(), sel = parseDate(ui.cal.sel);
+  if (v === 'day') return [addDays(sel, -1).getTime(), addDays(sel, 2).getTime()];
+  if (v === 'week') { const w = weekStart(ui.cal.sel); return [addDays(w, -1).getTime(), addDays(w, 8).getTime()]; }
+  if (v === 'year') return [new Date(sel.getFullYear(), 0, 1).getTime(), new Date(sel.getFullYear() + 1, 0, 1).getTime()];
+  const [y, m] = ui.cal.month.split('-').map(Number);
+  return [new Date(y, m - 1, 1 - 7).getTime(), new Date(y, m, 1 + 14).getTime()];
+}
+function calTitle() {
+  const v = calView(), d = parseDate(ui.cal.sel);
+  if (v === 'day') return `${WD[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  if (v === 'week') {
+    const a = weekStart(ui.cal.sel), b = addDays(a, 6);
+    return a.getMonth() === b.getMonth() ? `${a.getDate()} – ${b.getDate()} ${MONTHS[b.getMonth()]} ${b.getFullYear()}`
+      : `${a.getDate()} ${MONTHS[a.getMonth()].slice(0, 3)} – ${b.getDate()} ${MONTHS[b.getMonth()].slice(0, 3)} ${b.getFullYear()}`;
+  }
+  if (v === 'year') return String(d.getFullYear());
+  const [y, m] = ui.cal.month.split('-').map(Number);
+  return `${MONTHS_N[m - 1]} ${y}`;
+}
+function setCalDay(day) { ui.cal.sel = day; ui.cal.month = day.slice(0, 7); }
+
+/* Всё, что попадает на день: события приложения и телефона, дни рождения, сроки задач */
+function dayItems(day) {
+  const timed = [], allday = [];
+  const mins = (dt) => dt.getHours() * 60 + dt.getMinutes();
+  eventsOn(day).forEach((e) => {
+    const attrs = `data-a="open" data-type="event" data-id="${e.id}"`;
+    const cls = e.important ? 'imp' : 'ev';
+    if (e.allDay) { allday.push({ title: e.title, cls, attrs }); return; }
+    const st = parseDT(e.start), en = parseDT(e.end || e.start);
+    const s0 = e.start.slice(0, 10) < day ? 0 : mins(st);
+    const e0 = (e.end || e.start).slice(0, 10) > day ? 1440 : Math.max(mins(en), s0 + 15);
+    timed.push({ title: e.title, cls, attrs, s: s0, e: e0, time: e.start.slice(0, 10) === day ? hm(st) : '' });
+  });
+  devEventsOn(day).forEach((e) => {
+    const attrs = `data-a="dev-event" data-id="${e.eventId}" data-begin="${e.begin}"`;
+    if (e.allDay) { allday.push({ title: e.title || '(без названия)', cls: 'dev', attrs }); return; }
+    const st = new Date(e.begin), en = new Date(e.end);
+    const s0 = ymd(st) < day ? 0 : mins(st);
+    const e0 = ymd(en) > day ? 1440 : Math.max(mins(en), s0 + 15);
+    timed.push({ title: e.title || '(без названия)', cls: 'dev', attrs, s: s0, e: e0, time: ymd(st) === day ? hm(st) : '' });
+  });
+  birthdaysOn(day).forEach((c) => allday.push({ title: '🎂 ' + c.name, cls: 'bd', attrs: `data-a="open" data-type="contact" data-id="${c.id}"` }));
+  D.tasks.filter((t) => t.due === day && !isDone(t)).forEach((t) => {
+    const attrs = `data-a="open" data-type="task" data-id="${t.id}"`;
+    if (t.dueTime) { const [h, mi] = t.dueTime.split(':').map(Number); timed.push({ title: '☐ ' + t.title, cls: 'task', attrs, s: h * 60 + mi, e: h * 60 + mi + 30, time: t.dueTime }); }
+    else allday.push({ title: '☐ ' + t.title, cls: taskState(t) === 'overdue' ? 'od' : 'task', attrs });
+  });
+  return { timed, allday };
+}
+/* Раскладка пересекающихся событий по колонкам */
+function layoutDay(items) {
+  const list = items.slice().sort((a, b) => a.s - b.s || b.e - a.e);
+  let cluster = [], end = -1;
+  const flush = () => {
+    const cols = [];
+    cluster.forEach((it) => { let c = cols.findIndex((x) => x <= it.s); if (c < 0) { c = cols.length; cols.push(0); } cols[c] = it.e; it.col = c; });
+    cluster.forEach((it) => { it.cols = cols.length; });
+    cluster = [];
+  };
+  list.forEach((it) => { if (it.s >= end && cluster.length) { flush(); end = -1; } cluster.push(it); end = Math.max(end, it.e); });
+  if (cluster.length) flush();
+  return list;
+}
+const HOUR_PX = 48;
+function timeGrid(days) {
+  const t = today();
+  const now = new Date();
+  const many = days.length > 1;
+  const data = days.map((d) => ({ d, k: ymd(d), it: dayItems(ymd(d)) }));
+  const hasAllday = data.some((x) => x.it.allday.length);
+  const head = many ? `<div class="tg-head"><div class="tg-gut"></div>${data.map((x) => `<button class="tg-dh ${x.k === t ? 'td' : ''} ${x.d.getDay() === 0 || x.d.getDay() === 6 ? 'we' : ''}" data-a="cal-goday" data-id="${x.k}"><span>${WD[x.d.getDay()]}</span><b>${x.d.getDate()}</b></button>`).join('')}</div>` : '';
+  const allday = hasAllday ? `<div class="tg-allday"><div class="tg-gut small muted">весь<br>день</div>${data.map((x) => `<div class="tg-adcol">${x.it.allday.map((a) => `<div class="tg-chip ${a.cls}" ${a.attrs}>${esc(a.title)}</div>`).join('')}</div>`).join('')}</div>` : '';
+  const hours = Array.from({ length: 24 }, (_, h) => `<div class="tg-h" style="top:${h * HOUR_PX}px">${h ? pad(h) + ':00' : ''}</div>`).join('');
+  const cols = data.map((x) => {
+    const slots = Array.from({ length: 24 }, (_, h) => `<div class="tg-slot" style="top:${h * HOUR_PX}px" data-a="new" data-type="event" data-preset='${esc(JSON.stringify({ date: x.k, time: pad(h) + ':00' }))}'></div>`).join('');
+    const evs = layoutDay(x.it.timed).map((it) => {
+      const top = it.s / 60 * HOUR_PX, h = Math.max(20, (it.e - it.s) / 60 * HOUR_PX - 2);
+      const w = 100 / it.cols;
+      return `<div class="tg-ev ${it.cls}" ${it.attrs} style="top:${top}px;height:${h}px;left:calc(${it.col * w}% + 1px);width:calc(${w}% - 2px)"><b>${esc(it.title)}</b>${it.time && h > 30 ? `<span>${esc(it.time)}</span>` : ''}</div>`;
+    }).join('');
+    const nowLine = x.k === t ? `<div class="tg-now" style="top:${(now.getHours() * 60 + now.getMinutes()) / 60 * HOUR_PX}px"></div>` : '';
+    return `<div class="tg-col ${x.k === t ? 'td' : ''}">${slots}${evs}${nowLine}</div>`;
+  }).join('');
+  const scrollTo = data.some((x) => x.k === t) ? Math.max(0, now.getHours() - 1) : 7;
+  return `<div class="tg ${many ? 'week' : 'day'}">${head}${allday}
+    <div class="tg-scroll" id="tg-scroll" data-y="${scrollTo * HOUR_PX}"><div class="tg-body" style="height:${24 * HOUR_PX}px"><div class="tg-gut">${hours}</div><div class="tg-cols">${cols}</div></div></div></div>`;
+}
+function monthGrid() {
   const [y, m] = ui.cal.month.split('-').map(Number);
   const first = new Date(y, m - 1, 1);
-  const startOffset = (first.getDay() + 6) % 7;
-  const gridStart = addDays(first, -startOffset);
+  const gridStart = addDays(first, -((first.getDay() + 6) % 7));
   const t = today();
+  const wide = window.innerWidth >= 600;
   let cells = '';
   for (let i = 0; i < 42; i++) {
     const d = addDays(gridStart, i);
     const k = ymd(d);
-    const evs = eventsOn(k);
-    const dev = devEventsOn(k).length;
-    const tk = D.tasks.filter((x) => x.due === k && !isDone(x)).length;
-    const bd = birthdaysOn(k).length;
-    const dots = (bd ? '<i class="bd"></i>' : '') + evs.slice(0, 3).map((e) => `<i class="${e.important ? 'imp' : ''}"></i>`).join('') + (dev ? '<i class="dev"></i>' : '') + (tk ? '<i class="task"></i>' : '');
-    cells += `<button class="cal-d ${d.getMonth() !== m - 1 ? 'out' : ''} ${k === t ? 'td' : ''} ${k === ui.cal.sel ? 'sel' : ''}" data-a="cal-sel" data-id="${k}"><span>${d.getDate()}</span><span class="dots">${dots}</span></button>`;
+    let inner;
+    if (wide) {
+      const it = dayItems(k);
+      const all = it.allday.map((a) => ({ title: a.title, cls: a.cls })).concat(layoutDay(it.timed).map((x) => ({ title: (x.time ? x.time + ' ' : '') + x.title, cls: x.cls })));
+      inner = `<span class="mg-items">${all.slice(0, 3).map((a) => `<i class="mg-it ${a.cls}">${esc(a.title)}</i>`).join('')}${all.length > 3 ? `<i class="mg-more">ещё ${all.length - 3}</i>` : ''}</span>`;
+    } else {
+      const evs = eventsOn(k), dev = devEventsOn(k).length, tk = D.tasks.filter((x) => x.due === k && !isDone(x)).length, bd = birthdaysOn(k).length;
+      inner = `<span class="dots">${(bd ? '<i class="bd"></i>' : '') + evs.slice(0, 3).map((e) => `<i class="${e.important ? 'imp' : ''}"></i>`).join('') + (dev ? '<i class="dev"></i>' : '') + (tk ? '<i class="task"></i>' : '')}</span>`;
+    }
+    cells += `<button class="cal-d ${wide ? 'wide' : ''} ${d.getMonth() !== m - 1 ? 'out' : ''} ${k === t ? 'td' : ''} ${k === ui.cal.sel ? 'sel' : ''}" data-a="cal-sel" data-id="${k}"><span>${d.getDate()}</span>${inner}</button>`;
     if (i === 34 && addDays(gridStart, 35).getMonth() !== m - 1) break;
   }
-  const sel = ui.cal.sel;
+  return `<div class="cal-grid">${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((w) => `<div class="cal-wd">${w}</div>`).join('')}${cells}</div>`;
+}
+function yearGrid() {
+  const y = parseDate(ui.cal.sel).getFullYear();
+  const t = today();
+  const busy = new Set();
+  D.events.forEach((e) => { if (e.start) { let d = parseDate(e.start); const end = parseDate((e.end || e.start).slice(0, 10)); for (let i = 0; i < 60 && d <= end; i++, d = addDays(d, 1)) busy.add(ymd(d)); } });
+  ui.devEvents.forEach((e) => busy.add(ymd(new Date(e.begin))));
+  D.tasks.forEach((x) => { if (x.due && !isDone(x)) busy.add(x.due); });
+  const bdays = new Set();
+  D.contacts.forEach((c) => { if (c.birthday && c.birthday.length >= 10) { const md = c.birthday.slice(5, 10); bdays.add(md === '02-29' && !isLeap(y) ? '02-28' : md); } });
+  const months = Array.from({ length: 12 }, (_, mi) => {
+    const first = new Date(y, mi, 1);
+    const off = (first.getDay() + 6) % 7;
+    const n = new Date(y, mi + 1, 0).getDate();
+    let cells = '<i></i>'.repeat(off);
+    for (let d = 1; d <= n; d++) {
+      const k = `${y}-${pad(mi + 1)}-${pad(d)}`;
+      cells += `<button class="yd ${k === t ? 'td' : ''} ${busy.has(k) ? 'has' : ''} ${bdays.has(k.slice(5)) ? 'bd' : ''}" data-a="cal-goday" data-id="${k}">${d}</button>`;
+    }
+    return `<div class="ym"><button class="ym-t ${y + '-' + pad(mi + 1) === t.slice(0, 7) ? 'cur' : ''}" data-a="cal-gomonth" data-id="${y}-${pad(mi + 1)}">${MONTHS_N[mi]}</button>
+      <div class="ym-g">${['П', 'В', 'С', 'Ч', 'П', 'С', 'В'].map((w) => `<i class="w">${w}</i>`).join('')}${cells}</div></div>`;
+  }).join('');
+  return `<div class="ygrid">${months}</div><div class="row mt small muted"><span><i class="dot" style="background:var(--accent)"></i> есть события или сроки</span><span><i class="dot" style="background:var(--pink)"></i> день рождения</span></div>`;
+}
+function dayPanel(sel) {
   const evs = eventsOn(sel).sort((a, b) => (a.allDay ? '0' : a.start) < (b.allDay ? '0' : b.start) ? -1 : 1);
   const dev = devEventsOn(sel);
   const tks = D.tasks.filter((x) => x.due === sel).sort(sortByDue);
   const bds = birthdaysOn(sel);
   const soon = upcomingBirthdays(30).filter((x) => x.d !== sel);
-  return `<div class="head"><h1>Календарь</h1><button class="btn primary" data-a="new" data-type="event" data-preset='${esc(JSON.stringify({ date: sel }))}'>${icon('plus')}<span>Событие</span></button></div>
-    <div class="cal-layout">
-      <div class="cal">
-        <div class="row" style="margin-bottom:6px">
-          <button class="icon-btn" data-a="cal-month" data-id="-1" aria-label="Предыдущий месяц">${icon('back')}</button>
-          <b class="grow" style="text-align:center;font-size:16px">${MONTHS_N[m - 1]} ${y}</b>
-          <button class="icon-btn" data-a="cal-month" data-id="1" aria-label="Следующий месяц" style="transform:scaleX(-1)">${icon('back')}</button>
-        </div>
-        <div class="cal-grid">${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((w) => `<div class="cal-wd">${w}</div>`).join('')}${cells}</div>
-        <div class="row mt small muted"><button class="btn sm" data-a="cal-today">Сегодня</button><span class="right"><i class="dot" style="background:var(--danger)"></i> важное <i class="dot" style="background:var(--accent)"></i> событие <i class="dot" style="background:var(--warn)"></i> срок задачи <i class="dot" style="background:var(--pink)"></i> день рождения <i class="dot"></i> системный</span></div>
+  return `<div class="section-title" style="margin-top:4px">${esc(fmtDate(sel, true))}<button class="btn sm right" data-a="cal-goday" data-id="${sel}">День ›</button></div>
+    ${evs.length || dev.length || bds.length ? `<div class="list">${bds.map((c) => birthdayItem(c, sel)).join('')}${evs.map((e) => eventItem(e)).join('')}${dev.map(devEventItem).join('')}</div>` : '<div class="list"><div class="empty">Событий нет</div></div>'}
+    ${tks.length ? `<div class="section-title">Сроки задач</div>${listOf(tks, taskItem, '')}` : ''}
+    ${soon.length ? `<div class="section-title">Ближайшие дни рождения</div><div class="list">${soon.slice(0, 8).map((x) => birthdayItem(x.c, x.d)).join('')}</div>` : ''}`;
+}
+SCREENS.calendar = function () {
+  const v = calView();
+  const sel = ui.cal.sel;
+  const top = `<div class="head"><h1>Календарь</h1><button class="btn primary" data-a="new" data-type="event" data-preset='${esc(JSON.stringify({ date: sel }))}'>${icon('plus')}<span>Событие</span></button></div>
+    <div class="cal-top">
+      <div class="seg">${CAL_VIEWS.map(([k, n]) => `<button class="${v === k ? 'on' : ''}" data-a="cal-view" data-id="${k}">${n}</button>`).join('')}</div>
+      <div class="row cal-nav">
+        <button class="icon-btn" data-a="cal-nav" data-id="-1" aria-label="Назад">${icon('back')}</button>
+        <b class="grow cal-title">${esc(calTitle())}</b>
+        <button class="icon-btn" data-a="cal-nav" data-id="1" aria-label="Вперёд" style="transform:scaleX(-1)">${icon('back')}</button>
+        <button class="btn sm" data-a="cal-today">Сегодня</button>
       </div>
-      <div>
-        <div class="section-title" style="margin-top:4px">${esc(fmtDate(sel, true))}</div>
-        ${evs.length || dev.length || bds.length ? `<div class="list">${bds.map((c) => birthdayItem(c, sel)).join('')}${evs.map((e) => eventItem(e)).join('')}${dev.map(devEventItem).join('')}</div>` : '<div class="list"><div class="empty">Событий нет</div></div>'}
-        ${tks.length ? `<div class="section-title">Сроки задач</div>${listOf(tks, taskItem, '')}` : ''}
-        ${soon.length ? `<div class="section-title">Ближайшие дни рождения</div><div class="list">${soon.slice(0, 8).map((x) => birthdayItem(x.c, x.d)).join('')}</div>` : ''}
-        ${N && !D.settings.showDeviceEvents ? '' : ''}
+    </div>`;
+  if (v === 'day') return top + `<div class="cal cal-swipe">${timeGrid([parseDate(sel)])}</div>`;
+  if (v === 'week') { const w = weekStart(sel); return top + `<div class="cal cal-swipe">${timeGrid(Array.from({ length: 7 }, (_, i) => addDays(w, i)))}</div>`; }
+  if (v === 'year') return top + `<div class="cal cal-swipe">${yearGrid()}</div>`;
+  return top + `<div class="cal-layout">
+      <div class="cal cal-swipe">${monthGrid()}
+        <div class="row mt small muted"><span class="right"><i class="dot" style="background:var(--danger)"></i> важное <i class="dot" style="background:var(--accent)"></i> событие <i class="dot" style="background:var(--warn)"></i> срок задачи <i class="dot" style="background:var(--pink)"></i> день рождения <i class="dot"></i> системный</span></div>
       </div>
+      <div>${dayPanel(sel)}</div>
     </div>`;
 };
 
@@ -1134,7 +1350,7 @@ SCREENS.notes = function () {
   }
   return `<div class="head"><h1>Заметки</h1><button class="btn primary" data-a="new" data-type="note" data-preset='${esc(JSON.stringify(ui.notesContact !== 'all' && ui.notesContact !== 'none' ? { crmId: ui.notesContact } : {}))}'>${icon('plus')}<span>Заметка</span></button></div>
     <div class="row" style="margin-bottom:6px">
-      <input class="search grow" placeholder="Поиск по заметкам" data-input="notesQuery" value="${esc(ui.notesQuery)}">
+      ${searchBox('notesQuery', 'Поиск по заметкам', ui.notesQuery, 'grow')}
       <select class="search" style="width:auto;max-width:48%" data-change="notesContact">
         <option value="all">Все контакты</option><option value="none" ${ui.notesContact === 'none' ? 'selected' : ''}>Без контакта</option>
         ${D.contacts.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((c) => `<option value="${c.id}" ${ui.notesContact === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
@@ -1250,6 +1466,13 @@ SCREENS.settings = function () {
     <div class="card">
       <div class="picker">${s.people.map((p) => `<span class="chip" style="padding:6px 10px"><i class="dot" style="background:${colorFor(p)}"></i>${esc(p)}${p === s.me ? ' (я)' : ` <button class="chip" style="padding:0 4px" data-a="person-del" data-id="${esc(p)}">✕</button>`}</span>`).join('')}</div>
       <div class="row mt"><input class="search grow" id="new-person" placeholder="Имя исполнителя"><button class="btn" data-a="person-add">${icon('plus')}Добавить</button></div>
+    </div>
+
+    <div class="section-title">Категории проектов</div>
+    <div class="card">
+      ${projectCategories().length ? `<div class="picker">${projectCategories().map((c) => `<span class="chip" style="padding:6px 10px">${icon('folder')}<button class="chip" style="padding:0 2px;background:none" data-a="pcat-rename" data-id="${esc(c)}">${esc(c)}</button> <span class="muted small">${D.projects.filter((p) => p.category === c).length}</span> <button class="chip" style="padding:0 4px" data-a="pcat-del" data-id="${esc(c)}" aria-label="Удалить">✕</button></span>`).join('')}</div>` : '<div class="sub">Категорий пока нет. Например: «Игры», «Медиа», «Инвестиции», «Образование».</div>'}
+      <div class="row mt"><input class="search grow" id="new-pcat" placeholder="Новая категория"><button class="btn" data-a="pcat-add">${icon('plus')}Добавить</button></div>
+      <div class="sub mt">Нажмите на название, чтобы переименовать. При удалении категории проекты остаются — просто без категории.</div>
     </div>
 
     <div class="section-title">Напоминания</div>
@@ -1424,7 +1647,7 @@ SHEETS.project = function ({ id }) {
   const cs = st.contacts.slice().sort((a, b) => (contactOverdue(b) - contactOverdue(a)) || a.name.localeCompare(b.name, 'ru'));
   const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
   return sheetHead(`<i class="dot" style="background:${esc(p.color || colorFor(p.name))};width:12px;height:12px"></i> ${esc(p.name)}`, `<button class="icon-btn" data-a="edit" data-type="project" data-id="${p.id}" aria-label="Изменить">${icon('edit')}</button>`)
-    + `${p.desc ? `<div class="desc" style="margin-bottom:12px">${esc(p.desc)}</div>` : ''}
+    + `${p.category ? `<div style="margin:-4px 0 10px"><span class="chip violet">${icon('folder')}${esc(p.category)}</span></div>` : ''}${p.desc ? `<div class="desc" style="margin-bottom:12px">${esc(p.desc)}</div>` : ''}
     <div class="pc-cats" style="margin-bottom:10px">
       <div class="pc-cat todo ${st.todoTasks.length + st.todoCrm.length ? 'hot' : ''}"><span class="l">К выполнению</span><span class="v"><b>${st.todoTasks.length}</b> задач · <b>${st.todoCrm.length}</b> crm</span></div>
       <div class="pc-cat od ${st.overdueTasks.length + st.overdueCrm.length ? 'hot' : ''}"><span class="l">Просрочено</span><span class="v"><b>${st.overdueTasks.length}</b> задач · <b>${st.overdueCrm.length}</b> crm</span></div>
@@ -1438,10 +1661,11 @@ SHEETS.project = function ({ id }) {
     + `<div class="form-actions mt2"><button class="btn danger" data-a="delete" data-type="project" data-id="${p.id}">${icon('trash')}Удалить проект</button></div>`;
 };
 SHEETS.projectForm = function ({ id, preset }) {
-  const p = id ? project(id) : Object.assign({ name: '', desc: '', color: PROJECT_COLORS[D.projects.length % PROJECT_COLORS.length], archived: false }, preset || {});
+  const p = id ? project(id) : Object.assign({ name: '', desc: '', category: ui.projCat && ui.projCat !== '—' ? ui.projCat : '', color: PROJECT_COLORS[D.projects.length % PROJECT_COLORS.length], archived: false }, preset || {});
   if (!p) return sheetHead('Проект удалён');
   return sheetHead(id ? 'Изменить проект' : 'Новый проект') + `<form class="form" data-form="project" data-id="${id || ''}">
     <div class="field"><label>Название</label><input name="name" required value="${esc(p.name)}" placeholder="Например: Запуск сайта"></div>
+    <div class="field"><label>Категория (вид деятельности)</label><select name="category"><option value="">— без категории —</option>${projectCategories().map((c) => `<option ${p.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select><input name="categoryNew" placeholder="или новая категория" style="margin-top:6px"></div>
     <div class="field"><label>Цвет</label><div class="picker">${PROJECT_COLORS.map((c) => `<label class="swatch"><input type="radio" name="color" value="${c}" ${(p.color || '') === c ? 'checked' : ''}><i style="background:${c}"></i></label>`).join('')}</div></div>
     <div class="field"><label>Описание</label><textarea name="desc" placeholder="Цель, договорённости, ссылки">${esc(p.desc || '')}</textarea></div>
     ${id ? `<label class="toggle"><input type="checkbox" name="archived" ${p.archived ? 'checked' : ''}><span class="grow">В архиве<small>Проект пропадёт с главного экрана; задачи сохранятся</small></span></label>` : ''}
@@ -1540,11 +1764,19 @@ SHEETS.event = function ({ id }) {
 
 SHEETS.eventForm = function ({ id, preset }) {
   const p = preset || {};
-  const base = { title: '', start: (p.date || today()) + 'T10:00', end: (p.date || today()) + 'T11:00', allDay: false, location: '', desc: '', important: false, remind: [D.settings.defaultRemind], crmIds: p.crmIds || [], syncDevice: !!D.settings.deviceCalendarId };
+  const t0 = /^\d{2}:\d{2}$/.test(p.time || '') ? p.time : '10:00';
+  const t1 = pad(Math.min(23, Number(t0.slice(0, 2)) + 1)) + t0.slice(2);
+  const base = { title: '', start: (p.date || today()) + 'T' + t0, end: (p.date || today()) + 'T' + t1, allDay: false, location: '', desc: '', important: false, remind: [D.settings.defaultRemind], crmIds: p.crmIds || [], syncDevice: !!D.settings.deviceCalendarId };
   const e = id ? event(id) : Object.assign(base, p.title ? { title: p.title } : {});
   const rm = (e.remind && e.remind[0] != null) ? e.remind[0] : -1;
   const opts = [[-1, 'Без напоминания'], [0, 'В момент начала'], [5, 'За 5 минут'], [15, 'За 15 минут'], [30, 'За 30 минут'], [60, 'За 1 час'], [120, 'За 2 часа'], [1440, 'За 1 день']];
+  const phoneCals = !id ? writableDeviceCalendars() : [];
+  const target = phoneCals.some((c) => 'dev:' + c.id === D.settings.newEventTarget) ? D.settings.newEventTarget : 'app';
   return sheetHead(id ? 'Изменить событие' : 'Новое событие') + `<form class="form" data-form="event" data-id="${id || ''}" data-preset='${esc(JSON.stringify(p))}'>
+    ${phoneCals.length ? `<div class="field"><label>Куда сохранить</label><select name="target" data-ev-target>
+      <option value="app" ${target === 'app' ? 'selected' : ''}>管理会计 — с напоминаниями, CRM и задачами</option>
+      ${phoneCals.map((c) => `<option value="dev:${c.id}" ${target === 'dev:' + c.id ? 'selected' : ''}>Календарь телефона: ${esc(c.name)}${c.account && c.account !== c.name ? ' (' + esc(c.account) + ')' : ''}</option>`).join('')}
+    </select></div>` : ''}
     <div class="field"><label>Название</label><input name="title" required value="${esc(e.title)}" placeholder="Встреча, звонок, дедлайн"></div>
     <div class="field"><label>Дата</label><input type="date" name="date" required value="${esc(e.start.slice(0, 10))}"></div>
     <div class="field-row">
@@ -1552,12 +1784,58 @@ SHEETS.eventForm = function ({ id, preset }) {
       <div class="field"><label>Конец</label><input type="time" name="to" value="${esc((e.end || '').slice(11, 16) || '')}"></div>
     </div>
     <label class="toggle"><input type="checkbox" name="allDay" ${e.allDay ? 'checked' : ''}><span class="grow">Весь день</span></label>
+    <div class="app-only" ${target !== 'app' ? 'hidden' : ''}>
     <label class="toggle"><input type="checkbox" name="important" ${e.important ? 'checked' : ''}><span class="grow">Важное — звонить как будильник<small>Сигнал за ${D.settings.importantRemind.map((m) => m === 0 ? 'в момент начала' : humanMins(m)).join(', ')}; не замолкает до ручного отключения</small></span></label>
-    <div class="field"><label>Обычное напоминание</label><select name="remind">${opts.map(([v, n]) => `<option value="${v}" ${rm === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    <div class="field mt"><label>Обычное напоминание</label><select name="remind">${opts.map(([v, n]) => `<option value="${v}" ${rm === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    </div>
     <div class="field"><label>Место</label><input name="location" value="${esc(e.location || '')}"></div>
     <div class="field"><label>Описание</label><textarea name="desc">${esc(e.desc || '')}</textarea></div>
-    ${D.settings.deviceCalendarId ? `<label class="toggle"><input type="checkbox" name="syncDevice" ${e.syncDevice ? 'checked' : ''}><span class="grow">Записать в календарь телефона</span></label>` : ''}
+    ${D.settings.deviceCalendarId ? `<label class="toggle app-only" ${target !== 'app' ? 'hidden' : ''}><input type="checkbox" name="syncDevice" ${e.syncDevice ? 'checked' : ''}><span class="grow">Также записать в календарь телефона</span></label>` : ''}
     <div class="form-actions"><button class="btn primary" type="submit">${icon('check')}Сохранить</button><button class="btn" type="button" data-a="sheet-back">Отмена</button></div>
+  </form>`;
+};
+
+/* ---------- Событие календаря телефона: изменение ---------- */
+function writableDeviceCalendars() {
+  if (!N || !N.saveDeviceEvent) return [];
+  try {
+    const p = JSON.parse(N.permissions() || '{}');
+    if (!p.calendar) return [];
+    return JSON.parse(N.deviceCalendars() || '[]').filter((c) => c.writable);
+  } catch (e) { return []; }
+}
+// Время для календаря телефона: «весь день» хранится в UTC-полночь, остальное — местное время
+function deviceTimes(date, from, to, allDay) {
+  if (allDay) { const s0 = utcDay(date); return { start: s0, end: s0 + 86400000 }; }
+  const st = parseDT(date + 'T' + from);
+  let en = parseDT(date + 'T' + to);
+  if (!(en > st)) en = new Date(st.getTime() + 3600000);
+  return { start: st.getTime(), end: en.getTime() };
+}
+SHEETS.devEventForm = function ({ preset }) {
+  const ev = (preset || {}).ev;
+  if (!ev) return sheetHead('Событие не найдено');
+  const st = new Date(ev.begin), en = new Date(ev.end);
+  const date = ev.allDay ? new Date(ev.begin).toISOString().slice(0, 10) : ymd(st);
+  return sheetHead('Событие телефона') + `<form class="form" data-form="devevent">
+    <div class="sub" style="margin-top:-6px"><i class="dot" style="background:${esc(ev.color || 'var(--muted)')}"></i> ${esc(ev.calendar || 'Календарь телефона')}</div>
+    ${ev.recurring ? `<div class="field"><label>Повторяющееся событие — что изменить?</label>
+      <label class="toggle"><input type="radio" name="scope" value="single" checked><span class="grow">Только это повторение<small>${esc(fmtDate(date, true))}</small></span></label>
+      <label class="toggle mt"><input type="radio" name="scope" value="series"><span class="grow">Всю серию<small>Название, место и описание; время повторений не меняется</small></span></label></div>` : ''}
+    <div class="field"><label>Название</label><input name="title" required value="${esc(ev.title || '')}"></div>
+    <div class="dev-times">
+      <div class="field"><label>Дата</label><input type="date" name="date" required value="${esc(date)}"></div>
+      <div class="field-row">
+        <div class="field"><label>Начало</label><input type="time" name="from" value="${ev.allDay ? '10:00' : esc(hm(st))}"></div>
+        <div class="field"><label>Конец</label><input type="time" name="to" value="${ev.allDay ? '11:00' : esc(hm(en))}"></div>
+      </div>
+      <label class="toggle"><input type="checkbox" name="allDay" ${ev.allDay ? 'checked' : ''}><span class="grow">Весь день</span></label>
+    </div>
+    <div class="field"><label>Место</label><input name="location" value="${esc(ev.location || '')}"></div>
+    <div class="field"><label>Описание</label><textarea name="desc">${esc(ev.description || '')}</textarea></div>
+    <div class="sub">Изменения сразу сохраняются в календаре телефона${/google|huawei|icloud|exchange|@/i.test(ev.calendar || '') ? ' и синхронизируются с аккаунтом' : ''}.</div>
+    <div class="form-actions"><button class="btn primary" type="submit">${icon('check')}Сохранить</button><button class="btn" type="button" data-a="sheet-back">Отмена</button>
+      <button class="btn danger right" type="button" data-a="dev-delete">${icon('trash')}</button></div>
   </form>`;
 };
 
@@ -1633,7 +1911,7 @@ function renderPicker() {
   items = items.filter((x) => !q || (x.t + ' ' + x.s).toLowerCase().includes(q));
   const title = { contact: 'Привязать контакт', task: 'Привязать задачу', event: 'Привязать событие', dep: 'Сначала нужно выполнить', ptask: 'Задачи проекта' }[p.type];
   modal(`<div class="row"><h3 class="grow" style="margin:0">${title}</h3><button class="btn sm primary" data-a="modal-close">Готово</button></div>
-    <input class="search mt" placeholder="Поиск" data-input="pickerQ" value="${esc(p.q || '')}">
+    ${searchBox('pickerQ', 'Поиск', p.q || '', 'mt')}
     <div class="list mt">${items.map((x) => {
       const on = pickerState(p.type, p.forType, p.forId, x.id);
       return `<div class="item" data-a="picker-toggle" data-id="${x.id}"><span class="check ${on ? 'on' : ''}">${on ? icon('check') : ''}</span><div class="grow"><div class="t">${esc(x.t)}</div>${x.s ? `<div class="s">${esc(x.s)}</div>` : ''}</div></div>`;
@@ -1677,7 +1955,13 @@ function submitForm(form) {
     }
     finishForm('task', saved.id, !id);
   } else if (kind === 'project') {
-    const data = { name: g('name'), color: g('color') || PROJECT_COLORS[0], desc: g('desc') };
+    let category = g('category');
+    if (g('categoryNew')) {
+      category = g('categoryNew');
+      const ex = projectCategories().find((c) => c.toLowerCase() === category.toLowerCase());
+      if (ex) category = ex; else D.settings.projectCategories.push(category);
+    }
+    const data = { name: g('name'), category, color: g('color') || PROJECT_COLORS[0], desc: g('desc') };
     if (id) data.archived = f.get('archived') === 'on';
     if (id) { Object.assign(project(id), data, { updatedAt: now }); saved = project(id); }
     else { saved = Object.assign({ id: uid('p'), archived: false, createdAt: now, updatedAt: now }, data); D.projects.push(saved); }
@@ -1688,7 +1972,37 @@ function submitForm(form) {
     if (id) { Object.assign(contact(id), data, { updatedAt: now }); saved = contact(id); }
     else { saved = Object.assign({ id: uid('c'), createdAt: now, updatedAt: now }, data); D.contacts.push(saved); }
     finishForm('contact', saved.id, !id);
+  } else if (kind === 'event' && g('target').startsWith('dev:')) {
+    // Новое событие сразу в календарь телефона
+    const calendarId = Number(g('target').slice(4));
+    const allDay = f.get('allDay') === 'on';
+    const tm = deviceTimes(g('date'), g('from') || '10:00', g('to'), allDay);
+    const res = N.saveDeviceEvent(JSON.stringify(Object.assign({ mode: 'new', calendarId, title: g('title'), description: g('desc'), location: g('location'), allDay }, tm)));
+    if (!(res > 0)) { toast('Не удалось записать в календарь телефона'); return; }
+    D.settings.newEventTarget = g('target');
+    clearDraft();
+    save();
+    ui.stack.pop();
+    loadDeviceEvents();
+    render();
+    toast('Событие добавлено в календарь телефона');
+    return;
+  } else if (kind === 'devevent') {
+    const ev = (top.preset || {}).ev;
+    if (!ev) return;
+    const allDay = f.get('allDay') === 'on';
+    const scope = ev.recurring ? (g('scope') || 'single') : 'event';
+    const tm = deviceTimes(g('date'), g('from') || '10:00', g('to'), allDay);
+    const res = N.saveDeviceEvent(JSON.stringify(Object.assign({ mode: scope, eventId: ev.eventId, originalBegin: ev.begin, title: g('title'), description: g('desc'), location: g('location'), allDay }, tm)));
+    if (!(res > 0)) { toast('Не удалось сохранить: календарь не разрешает изменения'); return; }
+    clearDraft();
+    ui.stack.pop();
+    loadDeviceEvents();
+    render();
+    toast(scope === 'series' ? 'Серия изменена' : 'Событие изменено');
+    return;
   } else if (kind === 'event') {
+    if (g('target') === 'app' && D.settings.newEventTarget !== 'app') D.settings.newEventTarget = 'app';
     const date = g('date');
     const allDay = f.get('allDay') === 'on';
     const from = g('from') || '10:00';
@@ -1754,6 +2068,15 @@ const ACTIONS = {
   'confirm-yes': () => { const f = ui.onConfirm; ui.onConfirm = null; modal(null); if (f) f(); },
   'home-filter': (el) => { ui.homeFilter = el.dataset.id && ui.homeFilter !== el.dataset.id ? el.dataset.id : null; render(); },
   'crm-filter': (el) => { ui.crmFilter = el.dataset.id; render(); },
+  'clear-input': (el) => {
+    const k = el.dataset.id;
+    if (k === 'pickerQ') { ui.picker.q = ''; ui.picker.focus = true; renderPicker(); return; }
+    ui[k] = '';
+    clearTimeout(ui.inputTimer);
+    render();
+    const inp = $(`[data-input="${k}"]`);
+    if (inp) inp.focus();
+  },
   'msel-toggle': (el) => {
     const pop = $('.msel-pop', el.closest('.msel'));
     const open = pop.hidden;
@@ -1850,17 +2173,35 @@ const ACTIONS = {
     ui.tfProject = el.dataset.id || '';
     go('tasks');
   },
+  'k-order': () => { ui.kOrder = !ui.kOrder; render(); },
+  'k-order-reset': () => { if (D.settings.kanbanOrder) delete D.settings.kanbanOrder[D.settings.kanbanGroup]; save(); render(); toast('Порядок колонок сброшен'); },
+  'k-move': (el) => {
+    const board = el.closest('.board');
+    const ids = JSON.parse(board.dataset.ids || '[]');
+    moveColumn(D.settings.kanbanGroup, ids, el.dataset.id, Number(el.dataset.val));
+  },
   'tf-reset': () => { ['tfProject', 'tfCrm', 'tfPerson', 'tfStatus', 'tfDue'].forEach((k) => { ui[k] = ''; }); render(); },
   'proj-arch': (el) => { ui.projArchived = el.dataset.id === '1'; render(); },
-  'cal-sel': (el) => { ui.cal.sel = el.dataset.id; if (el.dataset.id.slice(0, 7) !== ui.cal.month) { ui.cal.month = el.dataset.id.slice(0, 7); loadDeviceEvents(); } render(); },
-  'cal-month': (el) => {
-    const [y, m] = ui.cal.month.split('-').map(Number);
-    const d = new Date(y, m - 1 + Number(el.dataset.id), 1);
-    ui.cal.month = ymd(d).slice(0, 7);
+  'cal-sel': (el) => {
+    if (ui.cal.sel === el.dataset.id && calView() === 'month' && window.innerWidth < 600) { ACTIONS['cal-goday'](el); return; } // повторное нажатие — открыть день
+    const reload = el.dataset.id.slice(0, 7) !== ui.cal.month;
+    setCalDay(el.dataset.id); if (reload) loadDeviceEvents(); render();
+  },
+  'cal-view': (el) => { D.settings.calView = el.dataset.id; save(); loadDeviceEvents(); render(); },
+  'cal-goday': (el) => { setCalDay(el.dataset.id); D.settings.calView = 'day'; save(); loadDeviceEvents(); render(); },
+  'cal-gomonth': (el) => { setCalDay(el.dataset.id + '-01'); D.settings.calView = 'month'; save(); loadDeviceEvents(); render(); },
+  'cal-nav': (el) => {
+    const n = Number(el.dataset.id), v = calView(), d = parseDate(ui.cal.sel);
+    let nd;
+    if (v === 'day') nd = addDays(d, n);
+    else if (v === 'week') nd = addDays(d, 7 * n);
+    else if (v === 'year') nd = new Date(d.getFullYear() + n, d.getMonth(), Math.min(d.getDate(), 28));
+    else { const [y, m] = ui.cal.month.split('-').map(Number); nd = new Date(y, m - 1 + n, 1); const last = new Date(y, m + n, 0).getDate(); nd.setDate(Math.min(d.getDate(), last)); }
+    setCalDay(ymd(nd));
     loadDeviceEvents();
     render();
   },
-  'cal-today': () => { ui.cal.month = today().slice(0, 7); ui.cal.sel = today(); loadDeviceEvents(); render(); },
+  'cal-today': () => { setCalDay(today()); loadDeviceEvents(); render(); },
   'dev-event': (el) => {
     const e = ui.devEvents.find((x) => String(x.eventId) === el.dataset.id && String(x.begin) === el.dataset.begin);
     if (!e) return;
@@ -1870,8 +2211,39 @@ const ACTIONS = {
       <dl class="kv"><dt>Когда</dt><dd>${esc(fmtDate(ymd(st), true))}${e.allDay ? ', весь день' : ', ' + hm(st) + '–' + hm(en)}</dd>
       <dt>Календарь</dt><dd>${esc(e.calendar)}</dd>${e.location ? `<dt>Где</dt><dd>${esc(e.location)}</dd>` : ''}</dl>
       ${e.description ? `<div class="desc mt small">${esc(e.description)}</div>` : ''}
-      <div class="sub mt">Событие из календаря телефона. Добавьте его в приложение, чтобы привязать к задачам и CRM и включить будильник.</div>
-      <div class="form-actions mt"><button class="btn primary" data-a="dev-adopt">${icon('link')}Добавить в приложение</button><button class="btn" data-a="modal-close">Закрыть</button></div>`);
+      ${e.recurring ? '<div class="sub mt">🔁 Повторяющееся событие</div>' : ''}
+      <div class="sub mt">Событие из календаря телефона. ${e.writable && N && N.saveDeviceEvent ? 'Его можно изменить прямо здесь — изменения сохранятся в календаре телефона.' : 'Этот календарь только для чтения.'} Добавьте событие в приложение, чтобы привязать к задачам и CRM и включить будильник.</div>
+      <div class="form-actions mt">
+        ${e.writable && N && N.saveDeviceEvent ? `<button class="btn primary" data-a="dev-edit">${icon('edit')}Изменить</button>` : ''}
+        <button class="btn ${e.writable ? '' : 'primary'}" data-a="dev-adopt">${icon('link')}В приложение</button>
+        ${e.writable && N && N.saveDeviceEvent ? `<button class="btn danger" data-a="dev-delete">${icon('trash')}</button>` : ''}
+        <button class="btn" data-a="modal-close">Закрыть</button></div>`);
+  },
+  'dev-edit': () => { const e = ui.devPick; if (!e) return; modal(null); openSheet('devEvent', null, { edit: true, preset: { ev: e } }); },
+  'dev-delete': () => {
+    const top = ui.stack[ui.stack.length - 1];
+    const e = (top && top.type === 'devEvent' && top.preset && top.preset.ev) || ui.devPick;
+    if (!e) return;
+    ui.devPick = e;
+    if (e.recurring) {
+      modal(`<h3>Удалить повторяющееся событие?</h3><div class="sub">«${esc(e.title || '')}» — ${esc(fmtDate(ymd(new Date(e.begin)), true))}</div>
+        <div class="form-actions mt"><button class="btn danger" data-a="dev-delete-do" data-id="single">Только это</button><button class="btn danger" data-a="dev-delete-do" data-id="series">Всю серию</button><button class="btn" data-a="modal-close">Отмена</button></div>`);
+    } else {
+      modal(`<h3>Удалить событие «${esc(e.title || '')}» из календаря телефона?</h3>
+        <div class="form-actions"><button class="btn danger" data-a="dev-delete-do" data-id="event">Удалить</button><button class="btn" data-a="modal-close">Отмена</button></div>`);
+    }
+  },
+  'dev-delete-do': (el) => {
+    const e = ui.devPick;
+    if (!e) return;
+    const ok = N.deleteDeviceEventEx(e.eventId, el.dataset.id, e.begin);
+    modal(null);
+    if (!ok) { toast('Не удалось удалить'); return; }
+    ui.stack = ui.stack.filter((x) => x.type !== 'devEvent');
+    clearDraft();
+    loadDeviceEvents();
+    render();
+    toast(el.dataset.id === 'series' ? 'Серия удалена' : 'Событие удалено');
   },
   'dev-adopt': () => {
     const e = ui.devPick;
@@ -1897,6 +2269,36 @@ const ACTIONS = {
   'summary-copy': () => copyText(buildSummary({ person: ui.summaryPerson || '' })),
   'summary-share': () => { const t = buildSummary({ person: ui.summaryPerson || '' }); if (N) N.shareText(t); else if (navigator.share) navigator.share({ text: t }); else copyText(t); },
   'summary-opt': (el) => { const s = D.settings.summary; s[el.dataset.id] = !s[el.dataset.id]; save(); render(); },
+  'pcat-add': () => {
+    const v = ($('#new-pcat').value || '').trim();
+    if (!v) return;
+    if (!projectCategories().some((c) => c.toLowerCase() === v.toLowerCase())) D.settings.projectCategories.push(v);
+    save(); render(); toast('Категория добавлена');
+  },
+  'pcat-del': (el) => {
+    const c = el.dataset.id;
+    const n = D.projects.filter((p) => p.category === c).length;
+    confirmBox(`Удалить категорию «${c}»?${n ? ' ' + n + ' ' + plural(n, 'проект останется', 'проекта останутся', 'проектов останутся') + ' без категории.' : ''}`, () => {
+      D.settings.projectCategories = D.settings.projectCategories.filter((x) => x !== c);
+      D.projects.forEach((p) => { if (p.category === c) p.category = ''; });
+      if (ui.projCat === c) ui.projCat = '';
+      save(); render();
+    });
+  },
+  'pcat-rename': (el) => {
+    const c = el.dataset.id;
+    ui.pcatOld = c;
+    modal(`<h3>Переименовать категорию</h3><input class="search" id="pcat-new-name" value="${esc(c)}">
+      <div class="form-actions mt"><button class="btn primary" data-a="pcat-rename-save">${icon('check')}Сохранить</button><button class="btn" data-a="modal-close">Отмена</button></div>`);
+  },
+  'pcat-rename-save': () => {
+    const old = ui.pcatOld, v = ($('#pcat-new-name').value || '').trim();
+    if (!v || v === old) { modal(null); return; }
+    D.settings.projectCategories = Array.from(new Set(D.settings.projectCategories.map((x) => (x === old ? v : x)).concat(projectCategories().includes(old) && !D.settings.projectCategories.includes(old) ? [v] : [])));
+    D.projects.forEach((p) => { if (p.category === old) p.category = v; });
+    if (ui.projCat === old) ui.projCat = v;
+    save(); modal(null); render(); toast('Категория переименована');
+  },
   'person-add': () => {
     const v = ($('#new-person').value || '').trim();
     if (!v) return;
@@ -1969,6 +2371,11 @@ const ACTIONS = {
 document.addEventListener('click', (ev) => {
   if (!ev.target.closest('.msel')) $$('.msel-pop').forEach((p) => { p.hidden = true; });
 }, true);
+document.addEventListener('change', (ev) => {
+  if (!ev.target.matches || !ev.target.matches('[data-ev-target]')) return;
+  const isApp = ev.target.value === 'app';
+  $$('.app-only', ev.target.closest('form')).forEach((x) => { x.hidden = !isApp; });
+});
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('[data-msel-new]')) { ev.preventDefault(); ACTIONS['msel-add'](ev.target); }
 });
@@ -1989,6 +2396,65 @@ document.addEventListener('click', (ev) => {
   if (fn) { fn(el, ev); }
 });
 
+/* Перетаскивание колонок канбана за ⠿ (мышь, палец, стилус) */
+let colDrag = null;
+document.addEventListener('pointerdown', (ev) => {
+  const grip = ev.target.closest && ev.target.closest('.col-grip');
+  if (!grip) return;
+  const board = grip.closest('.board'), col = grip.closest('.col');
+  if (!board || !col) return;
+  ev.preventDefault();
+  colDrag = { board, col, id: grip.dataset.grip, x0: ev.clientX, sl0: board.scrollLeft, pid: ev.pointerId, target: null };
+  try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* */ }
+  board.classList.add('dragging-col');
+  col.classList.add('col-dragging');
+});
+document.addEventListener('pointermove', (ev) => {
+  const d = colDrag;
+  if (!d || ev.pointerId !== d.pid) return;
+  ev.preventDefault();
+  const br = d.board.getBoundingClientRect();
+  // автопрокрутка у краёв
+  if (ev.clientX > br.right - 40) d.board.scrollLeft += 14;
+  else if (ev.clientX < br.left + 40) d.board.scrollLeft -= 14;
+  const dx = ev.clientX - d.x0 + (d.board.scrollLeft - d.sl0);
+  d.col.style.transform = `translateX(${dx}px)`;
+  const cols = $$('.col', d.board).filter((c) => c !== d.col);
+  let idx = cols.length;
+  for (let i = 0; i < cols.length; i++) { const r = cols[i].getBoundingClientRect(); if (ev.clientX < r.left + r.width / 2) { idx = i; break; } }
+  d.target = idx;
+  cols.forEach((c, i) => { c.classList.toggle('drop-before', i === idx); c.classList.toggle('drop-after', idx === cols.length && i === cols.length - 1); });
+}, { passive: false });
+function endColDrag(ev) {
+  const d = colDrag;
+  if (!d || (ev && ev.pointerId !== d.pid)) return;
+  colDrag = null;
+  d.board.classList.remove('dragging-col');
+  d.col.classList.remove('col-dragging');
+  d.col.style.transform = '';
+  $$('.col', d.board).forEach((c) => c.classList.remove('drop-before', 'drop-after'));
+  if (d.target == null) return;
+  const ids = JSON.parse(d.board.dataset.ids || '[]');
+  if (d.target === ids.indexOf(d.id)) return; // на месте
+  moveColumn(D.settings.kanbanGroup, ids, d.id, d.target);
+}
+document.addEventListener('pointerup', endColDrag);
+document.addEventListener('pointercancel', endColDrag);
+
+/* Свайп влево/вправо в календаре — следующий/предыдущий период */
+let swipe = null;
+document.addEventListener('touchstart', (ev) => {
+  const el = ev.target.closest && ev.target.closest('.cal-swipe');
+  swipe = el && ev.touches.length === 1 ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY, t: Date.now() } : null;
+}, { passive: true });
+document.addEventListener('touchend', (ev) => {
+  if (!swipe || ui.tab !== 'calendar') return;
+  const dx = ev.changedTouches[0].clientX - swipe.x, dy = ev.changedTouches[0].clientY - swipe.y;
+  const fast = Date.now() - swipe.t < 600;
+  swipe = null;
+  if (fast && Math.abs(dx) > 70 && Math.abs(dy) < 50) ACTIONS['cal-nav']({ dataset: { id: dx < 0 ? '1' : '-1' } });
+}, { passive: true });
+
 document.addEventListener('submit', (ev) => {
   const form = ev.target.closest('form[data-form]');
   if (!form) return;
@@ -2007,6 +2473,11 @@ document.addEventListener('input', (ev) => {
   const k = el.dataset.input;
   if (!k) return;
   if (k === 'pickerQ') { ui.picker.q = el.value; ui.picker.focus = true; renderPicker(); return; }
+  const wrap = el.closest('.search-wrap');
+  if (wrap && !!el.value !== !!$('.search-x', wrap)) {
+    if (el.value) wrap.insertAdjacentHTML('beforeend', `<button type="button" class="search-x" data-a="clear-input" data-id="${k}" aria-label="Очистить">${icon('close')}</button>`);
+    else $('.search-x', wrap).remove();
+  }
   ui[k] = el.value;
   clearTimeout(ui.inputTimer);
   ui.inputTimer = setTimeout(() => {
@@ -2028,6 +2499,7 @@ document.addEventListener('change', (ev) => {
   else D.settings[k] = el.value;
   if (!D.settings.importantRemind.length) D.settings.importantRemind = [0];
   save();
+  if (k === 'projectsSort') { render(); return; }
   toast('Сохранено');
 });
 

@@ -13,6 +13,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.net.wifi.WifiManager;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -33,9 +34,12 @@ public class WebAccessService extends Service {
     static volatile WebServer server;
     static volatile String pin = "";
     static volatile String lastError = "";
+    static volatile Context ctx;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wakeLock;
+    /** Wi-Fi не уходит в энергосбережение при выключенном экране — иначе компьютер теряет связь с телефоном. */
+    private WifiManager.WifiLock wifiLock, wifiLockLowLatency;
     private final Runnable idleCheck = new Runnable() {
         @Override
         public void run() {
@@ -44,6 +48,7 @@ public class WebAccessService extends Service {
                 stopAll();
                 return;
             }
+            holdLocks(); // продлеваем блокировки, пока доступ включён
             handler.postDelayed(this, 60_000);
         }
     };
@@ -53,6 +58,7 @@ public class WebAccessService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        ctx = getApplicationContext();
         String action = intent == null ? ACTION_STOP : intent.getAction();
         if (!ACTION_START.equals(action)) {
             stopAll();
@@ -85,19 +91,69 @@ public class WebAccessService extends Service {
         }
         Notification n = buildNotification();
         if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            // «Подключённое устройство» (компьютер по Wi-Fi): без суточного лимита, который у dataSync в Android 15
+            try {
+                startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            } catch (Exception e) {
+                startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            }
         } else {
             startForeground(NOTIFICATION_ID, n);
         }
-        if (wakeLock == null) {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "uprucheet:web");
-            wakeLock.acquire(IDLE_LIMIT + 5 * 60_000L);
-        }
+        holdLocks();
         handler.removeCallbacks(idleCheck);
         handler.postDelayed(idleCheck, 60_000);
         notifyActivity();
         return START_NOT_STICKY;
+    }
+
+    /** Процессор и Wi-Fi не засыпают, пока включён доступ (в т.ч. при заблокированном экране). */
+    private void holdLocks() {
+        try {
+            if (wakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "uprucheet:web");
+                wakeLock.setReferenceCounted(false);
+            }
+            wakeLock.acquire(15 * 60_000L); // продлевается каждую минуту
+        } catch (Exception ignored) {
+        }
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                if (wifiLock == null) {
+                    wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "uprucheet:web-wifi");
+                    wifiLock.setReferenceCounted(false);
+                }
+                if (!wifiLock.isHeld()) wifiLock.acquire();
+                if (Build.VERSION.SDK_INT >= 29) {
+                    if (wifiLockLowLatency == null) {
+                        wifiLockLowLatency = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "uprucheet:web-wifi-ll");
+                        wifiLockLowLatency.setReferenceCounted(false);
+                    }
+                    if (!wifiLockLowLatency.isHeld()) wifiLockLowLatency.acquire();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void releaseLocks() {
+        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) { }
+        try { if (wifiLock != null && wifiLock.isHeld()) wifiLock.release(); } catch (Exception ignored) { }
+        try { if (wifiLockLowLatency != null && wifiLockLowLatency.isHeld()) wifiLockLowLatency.release(); } catch (Exception ignored) { }
+        wakeLock = null;
+        wifiLock = null;
+        wifiLockLowLatency = null;
+    }
+
+    static boolean batteryUnrestricted(Context c) {
+        try {
+            PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
+            return pm.isIgnoringBatteryOptimizations(c.getPackageName());
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private Notification buildNotification() {
@@ -115,6 +171,7 @@ public class WebAccessService extends Service {
                 .setSmallIcon(R.drawable.ic_notify)
                 .setContentTitle("Доступ с компьютера включён")
                 .setContentText(url + "  ·  PIN " + pin)
+                .setStyle(new Notification.BigTextStyle().bigText(url + "  ·  PIN " + pin + "\nРаботает и при заблокированном экране. Выключится сам через 30 минут, если компьютер не подключён."))
                 .setOngoing(true)
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(null, "Выключить", stop).build())
@@ -138,6 +195,7 @@ public class WebAccessService extends Service {
                     .put("pin", server != null ? pin : "")
                     .put("urls", arr)
                     .put("error", lastError)
+                    .put("battery", ctx != null && batteryUnrestricted(ctx))
                     .toString();
         } catch (Exception e) {
             return "{}";
@@ -155,8 +213,7 @@ public class WebAccessService extends Service {
         server = null;
         pin = "";
         if (s != null) s.stop();
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-        wakeLock = null;
+        releaseLocks();
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE);
         else stopForeground(true);
         stopSelf();
@@ -169,7 +226,7 @@ public class WebAccessService extends Service {
         WebServer s = server;
         server = null;
         if (s != null) s.stop();
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        releaseLocks();
         super.onDestroy();
     }
 }

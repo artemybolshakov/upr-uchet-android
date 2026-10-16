@@ -74,6 +74,10 @@ public final class CalendarSync {
                 CalendarContract.Instances.CALENDAR_ID,
                 CalendarContract.Instances.EVENT_LOCATION,
                 CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
+                CalendarContract.Instances.RRULE,
+                CalendarContract.Instances.CALENDAR_ACCESS_LEVEL,
+                CalendarContract.Instances.DISPLAY_COLOR,
+                CalendarContract.Instances.ORIGINAL_ID,
         };
         try (Cursor cur = c.getContentResolver().query(b.build(), proj, null, null,
                 CalendarContract.Instances.BEGIN + " ASC")) {
@@ -89,7 +93,10 @@ public final class CalendarSync {
                         .put("allDay", cur.getInt(5) == 1)
                         .put("calendarId", cur.getLong(6))
                         .put("location", nz(cur.getString(7)))
-                        .put("calendar", nz(cur.getString(8))));
+                        .put("calendar", nz(cur.getString(8)))
+                        .put("recurring", !nz(cur.getString(9)).isEmpty() || !cur.isNull(12))
+                        .put("writable", cur.getInt(10) >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR)
+                        .put("color", String.format("#%06X", 0xFFFFFF & cur.getInt(11))));
             }
         } catch (Exception ignored) {
         }
@@ -124,6 +131,77 @@ public final class CalendarSync {
             return uri == null ? -1 : ContentUris.parseId(uri);
         } catch (Exception e) {
             return -1;
+        }
+    }
+
+    private static ContentValues values(JSONObject o, boolean withTimes) throws Exception {
+        ContentValues v = new ContentValues();
+        v.put(CalendarContract.Events.TITLE, o.optString("title"));
+        v.put(CalendarContract.Events.DESCRIPTION, o.optString("description"));
+        v.put(CalendarContract.Events.EVENT_LOCATION, o.optString("location"));
+        if (withTimes) {
+            boolean allDay = o.optBoolean("allDay");
+            long start = o.getLong("start");
+            long end = o.optLong("end", start + 3600_000L);
+            if (end <= start) end = start + (allDay ? 86_400_000L : 3600_000L);
+            v.put(CalendarContract.Events.DTSTART, start);
+            v.put(CalendarContract.Events.DTEND, end);
+            v.put(CalendarContract.Events.ALL_DAY, allDay ? 1 : 0);
+            v.put(CalendarContract.Events.EVENT_TIMEZONE, allDay ? "UTC" : TimeZone.getDefault().getID());
+        }
+        return v;
+    }
+
+    /**
+     * Изменение события календаря телефона.
+     * mode: "new" — создать в calendarId; "event" — обычное событие целиком;
+     * "single" — только одно повторение (исключение в серии, originalBegin = время этого повторения);
+     * "series" — вся серия (название, место, описание; время повторений не трогаем).
+     * Возвращает id события или -1.
+     */
+    public static long saveDeviceEvent(Context c, String json) {
+        if (!canWrite(c)) return -1;
+        try {
+            JSONObject o = new JSONObject(json);
+            String mode = o.optString("mode", "event");
+            long id = o.optLong("eventId", -1);
+            if ("new".equals(mode)) {
+                ContentValues v = values(o, true);
+                v.put(CalendarContract.Events.CALENDAR_ID, o.getLong("calendarId"));
+                Uri uri = c.getContentResolver().insert(CalendarContract.Events.CONTENT_URI, v);
+                return uri == null ? -1 : ContentUris.parseId(uri);
+            }
+            if (id <= 0) return -1;
+            if ("single".equals(mode)) {
+                ContentValues v = values(o, true);
+                v.put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, o.getLong("originalBegin"));
+                Uri uri = c.getContentResolver().insert(
+                        ContentUris.withAppendedId(CalendarContract.Events.CONTENT_EXCEPTION_URI, id), v);
+                return uri == null ? -1 : ContentUris.parseId(uri);
+            }
+            ContentValues v = values(o, !"series".equals(mode));
+            int n = c.getContentResolver().update(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id), v, null, null);
+            return n > 0 ? id : -1;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** Удаление: mode "single" — только одно повторение серии, иначе событие (или вся серия) целиком. */
+    public static boolean deleteDeviceEvent(Context c, long id, String mode, long originalBegin) {
+        if (!canWrite(c) || id <= 0) return false;
+        try {
+            if ("single".equals(mode)) {
+                ContentValues v = new ContentValues();
+                v.put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, originalBegin);
+                v.put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED);
+                return c.getContentResolver().insert(
+                        ContentUris.withAppendedId(CalendarContract.Events.CONTENT_EXCEPTION_URI, id), v) != null;
+            }
+            return c.getContentResolver().delete(
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id), null, null) > 0;
+        } catch (Exception e) {
+            return false;
         }
     }
 
