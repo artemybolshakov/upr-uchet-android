@@ -86,7 +86,7 @@
     if (!b) {
       b = document.createElement('div');
       b.id = 'remote-bar';
-      b.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:60;padding:8px 14px;border-radius:999px;font:13px/1.3 -apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.15);display:flex;gap:8px;align-items:center';
+      b.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:60;padding:8px 14px;border-radius:999px;font:13px/1.3 -apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.15);display:flex;gap:8px;align-items:center;pointer-events:none';
       document.body.appendChild(b);
     }
     return b;
@@ -94,6 +94,7 @@
   function setOffline(v) {
     offline = v;
     const b = bar();
+    b.style.pointerEvents = 'none'; // плашка не перекрывает кнопки формы под ней
     b.style.background = v ? '#e5484d' : '#1f9d5a';
     b.style.color = '#fff';
     b.innerHTML = v ? '● Нет связи с телефоном — проверьте Wi-Fi и что доступ включён'
@@ -102,6 +103,7 @@
   function sessionLost() {
     const b = bar();
     b.style.background = '#222634';
+    b.style.pointerEvents = 'auto'; // ссылка «Войти снова» должна нажиматься
     b.style.color = '#fff';
     b.innerHTML = 'Сеанс завершён. <a href="/" style="color:#9db4ff">Войти снова</a>';
   }
@@ -145,6 +147,60 @@
     showOverlay(false);
     Array.from((e.dataTransfer && e.dataTransfer.files) || []).forEach((f) => queue.push(f));
     next();
+  });
+
+  // 6. Календарь телефона через API — те же методы, что у Android-моста (window.Native).
+  //    app.js вызывает мост синхронно, поэтому здесь синхронный XHR, как и для /api/data выше.
+  //    Запросы идут по локальной Wi-Fi-сети и занимают десятки миллисекунд.
+  function call(method, path, body) {
+    if (offline) return null; // телефон недоступен — не блокируем страницу ожиданием
+    try {
+      const x = new XMLHttpRequest();
+      x.open(method, path, false);
+      if (body !== undefined) {
+        x.setRequestHeader('Content-Type', 'application/json');
+        x.setRequestHeader('X-Upr', '1');
+      }
+      x.send(body !== undefined ? JSON.stringify(body) : null);
+      if (x.status === 401) { sessionLost(); return null; }
+      if (x.status !== 200) return null;
+      return x.responseText;
+    } catch (e) {
+      try { setOffline(true); } catch (er) { /* страница ещё не готова */ }
+      return null;
+    }
+  }
+  const parse = (t, def) => { try { const v = JSON.parse(t); return v == null ? def : v; } catch (e) { return def; } };
+  // права и список календарей меняются редко — кэшируем на 20 секунд, чтобы не спрашивать телефон при каждой отрисовке
+  const cache = {};
+  function cached(key, path) {
+    const c = cache[key];
+    if (c && Date.now() - c.t < 20000) return c.v;
+    const v = call('GET', path);
+    if (v != null) cache[key] = { v, t: Date.now() };
+    return v;
+  }
+  window.RemoteCal = {
+    permissions: () => cached('perm', '/api/permissions') || '{}',
+    deviceCalendars: () => cached('cals', '/api/device-calendars') || '[]',
+    deviceEvents: (from, to, ids) => call('GET', `/api/device-events?from=${Math.round(from)}&to=${Math.round(to)}&ids=${encodeURIComponent(ids || '')}`) || '[]',
+    // создать / изменить; mode: new | event | single (только это повторение) | series (вся серия)
+    saveDeviceEvent: (json) => parse(call('POST', '/api/device-event', parse(json, {})), {}).id || -1,
+    deleteDeviceEventEx: (id, mode, originalBegin) => !!parse(call('POST', '/api/device-event-delete', { id, mode, originalBegin }), {}).ok,
+    // события приложения с галочкой «Также записать в календарь телефона»
+    upsertDeviceEvent: (json) => parse(call('POST', '/api/device-event-upsert', parse(json, {})), {}).id || -1,
+    deleteDeviceEvent: (id) => !!parse(call('POST', '/api/device-event-remove', { id }), {}).ok,
+    snapshotNow: () => !!parse(call('POST', '/api/snapshot-now', {}), {}).ok,
+    listSnapshots: () => call('GET', '/api/snapshots') || '[]',
+    readSnapshot: (name) => call('GET', '/api/snapshot?name=' + encodeURIComponent(name)) || 'null',
+    resetCache: () => { delete cache.perm; delete cache.cals; },
+  };
+  // вернулись к окну — подтягиваем изменения календаря, сделанные на телефоне или на icloud.com
+  window.addEventListener('focus', () => {
+    try {
+      window.RemoteCal.resetCache();
+      if (ui.tab === 'calendar' && !ui.stack.length) loadDeviceEvents(true);
+    } catch (e) { /* app.js ещё не загружен */ }
   });
 
   window.__remote = { poll, get rev() { return rev; } };

@@ -6,6 +6,8 @@
  * ======================================================= */
 // APP_VERSION, SCHEMA, emptyData, migrate, parseBackup — в schema.js
 const N = window.Native || null; // Android-мост (в браузере отсутствует)
+// Календарь телефона: в приложении — мост, в веб-версии (доступ с компьютера) — то же самое через API телефона (remote.js)
+const CAL = N || window.RemoteCal || null;
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -293,7 +295,7 @@ function removeContact(id) {
 }
 function removeEvent(id) {
   const e = event(id);
-  if (e && e.deviceId && N && e.syncDevice) try { N.deleteDeviceEvent(e.deviceId); } catch (er) { /* */ }
+  if (e && e.deviceId && CAL && e.syncDevice) try { CAL.deleteDeviceEvent(e.deviceId); } catch (er) { /* */ }
   D.events = D.events.filter((x) => x.id !== id);
   D.tasks.forEach((t) => { t.eventIds = t.eventIds.filter((y) => y !== id); });
 }
@@ -1135,14 +1137,14 @@ SCREENS.crm = function () {
 
 /* ---------- Календарь ---------- */
 function loadDeviceEvents(force) {
-  if (!N || !D.settings.showDeviceEvents) { ui.devEvents = []; return; }
+  if (!CAL || !D.settings.showDeviceEvents) { ui.devEvents = []; return; }
   try {
-    const p = JSON.parse(N.permissions() || '{}');
+    const p = JSON.parse(CAL.permissions() || '{}');
     if (!p.calendar) { ui.devEvents = []; return; }
     const [from, to] = calRange();
     const ids = (D.settings.showDeviceCalendars || []).join(',');
     const linked = new Set(D.events.map((e) => String(e.deviceId || '')));
-    ui.devEvents = JSON.parse(N.deviceEvents(from, to, ids) || '[]').filter((e) => !linked.has(String(e.eventId)));
+    ui.devEvents = JSON.parse(CAL.deviceEvents(from, to, ids) || '[]').filter((e) => !linked.has(String(e.eventId)));
     if (force) render();
   } catch (e) { ui.devEvents = []; }
 }
@@ -1457,6 +1459,11 @@ SCREENS.settings = function () {
     try { snaps = JSON.parse(N.listSnapshots() || '[]'); } catch (e) { /* */ }
     try { info = JSON.parse(N.appInfo() || '{}'); } catch (e) { /* */ }
     try { ui.devCals = perms.calendar ? JSON.parse(N.deviceCalendars() || '[]') : []; } catch (e) { ui.devCals = []; }
+  } else if (CAL) {
+    // веб-версия: права и календари — с телефона
+    try { perms = JSON.parse(CAL.permissions() || '{}'); } catch (e) { /* */ }
+    try { snaps = JSON.parse(CAL.listSnapshots() || '[]'); } catch (e) { /* */ }
+    try { ui.devCals = perms.calendar ? JSON.parse(CAL.deviceCalendars() || '[]') : []; } catch (e) { ui.devCals = []; }
   }
   const perm = (k, title, hint) => `<div class="perm"><div class="grow"><div>${title}</div><div class="sub">${hint}</div></div>${perms[k] ? '<span class="ok">включено</span>' : `<button class="btn sm" data-a="perm" data-id="${k}">Разрешить</button>`}</div>`;
   const fmtSize = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(b / 1024)) + ' КБ';
@@ -1500,14 +1507,16 @@ SCREENS.settings = function () {
 
     <div class="section-title">Календарь телефона</div>
     <div class="card form">
-      <label class="toggle"><input type="checkbox" data-a="set-bool" data-key="showDeviceEvents" ${s.showDeviceEvents ? 'checked' : ''}><span class="grow">Показывать события календаря телефона<small>Только чтение; их можно привязать к задачам и контактам</small></span></label>
+      <label class="toggle"><input type="checkbox" data-a="set-bool" data-key="showDeviceEvents" ${s.showDeviceEvents ? 'checked' : ''}><span class="grow">Показывать события календаря телефона<small>Их можно изменять, удалять и привязывать к задачам и контактам</small></span></label>
       ${ui.devCals.length ? `
         <div class="field"><label>Какие календари показывать (пусто — все)</label>
           <div class="picker">${ui.devCals.map((c) => `<button class="chip ${s.showDeviceCalendars.includes(String(c.id)) ? 'blue' : ''}" data-a="devcal-toggle" data-id="${c.id}"><i class="dot" style="background:${esc(c.color)}"></i>${esc(c.name)}</button>`).join('')}</div></div>
         <div class="field"><label>Куда записывать события приложения</label>
           <select data-setting="deviceCalendarId"><option value="">Не записывать</option>${ui.devCals.filter((c) => c.writable).map((c) => `<option value="${c.id}" ${String(s.deviceCalendarId) === String(c.id) ? 'selected' : ''}>${esc(c.name)}${c.account ? ' — ' + esc(c.account) : ''}</option>`).join('')}</select></div>`
-      : `<div class="sub">${N ? 'Разрешите доступ к календарю выше, чтобы выбрать календари.' : 'Доступно в приложении на телефоне.'}</div>`}
-      <div class="row"><b class="grow">Офлайн-копии календаря</b>${N ? `<button class="btn sm" data-a="snapshot-now">${icon('backup')}Снимок сейчас</button>` : ''}</div>
+      : `<div class="sub">${N ? 'Разрешите доступ к календарю выше, чтобы выбрать календари.'
+        : CAL ? (perms.calendar ? 'На телефоне не найдено ни одного календаря.' : 'Разрешите приложению доступ к календарю на телефоне: Настройки → Разрешения → Календарь.')
+        : 'Доступно в приложении на телефоне.'}</div>`}
+      <div class="row"><b class="grow">Офлайн-копии календаря</b>${CAL ? `<button class="btn sm" data-a="snapshot-now">${icon('backup')}Снимок сейчас</button>` : ''}</div>
       <div class="sub">Каждый день приложение сохраняет у себя копию событий календаря телефона (−60 … +365 дней). Хранится 30 последних снимков; они не зависят от серверов.</div>
       ${snaps.length ? `<div class="list">${snaps.slice(0, 10).map((f) => `<div class="item" data-a="snapshot-open" data-id="${esc(f.name)}"><div class="grow"><div class="t">${esc(f.name.replace('cal-', '').replace('.json', ''))}</div><div class="s">${fmtSize(f.size)}</div></div></div>`).join('')}</div>` : ''}
     </div>
@@ -1797,11 +1806,11 @@ SHEETS.eventForm = function ({ id, preset }) {
 
 /* ---------- Событие календаря телефона: изменение ---------- */
 function writableDeviceCalendars() {
-  if (!N || !N.saveDeviceEvent) return [];
+  if (!CAL || !CAL.saveDeviceEvent) return [];
   try {
-    const p = JSON.parse(N.permissions() || '{}');
+    const p = JSON.parse(CAL.permissions() || '{}');
     if (!p.calendar) return [];
-    return JSON.parse(N.deviceCalendars() || '[]').filter((c) => c.writable);
+    return JSON.parse(CAL.deviceCalendars() || '[]').filter((c) => c.writable);
   } catch (e) { return []; }
 }
 // Время для календаря телефона: «весь день» хранится в UTC-полночь, остальное — местное время
@@ -1977,7 +1986,7 @@ function submitForm(form) {
     const calendarId = Number(g('target').slice(4));
     const allDay = f.get('allDay') === 'on';
     const tm = deviceTimes(g('date'), g('from') || '10:00', g('to'), allDay);
-    const res = N.saveDeviceEvent(JSON.stringify(Object.assign({ mode: 'new', calendarId, title: g('title'), description: g('desc'), location: g('location'), allDay }, tm)));
+    const res = CAL.saveDeviceEvent(JSON.stringify(Object.assign({ mode: 'new', calendarId, title: g('title'), description: g('desc'), location: g('location'), allDay }, tm)));
     if (!(res > 0)) { toast('Не удалось записать в календарь телефона'); return; }
     D.settings.newEventTarget = g('target');
     clearDraft();
@@ -1993,7 +2002,7 @@ function submitForm(form) {
     const allDay = f.get('allDay') === 'on';
     const scope = ev.recurring ? (g('scope') || 'single') : 'event';
     const tm = deviceTimes(g('date'), g('from') || '10:00', g('to'), allDay);
-    const res = N.saveDeviceEvent(JSON.stringify(Object.assign({ mode: scope, eventId: ev.eventId, originalBegin: ev.begin, title: g('title'), description: g('desc'), location: g('location'), allDay }, tm)));
+    const res = CAL.saveDeviceEvent(JSON.stringify(Object.assign({ mode: scope, eventId: ev.eventId, originalBegin: ev.begin, title: g('title'), description: g('desc'), location: g('location'), allDay }, tm)));
     if (!(res > 0)) { toast('Не удалось сохранить: календарь не разрешает изменения'); return; }
     clearDraft();
     ui.stack.pop();
@@ -2045,9 +2054,9 @@ function finishForm(type, id, created) {
 }
 function utcDay(s) { const [y, m, d] = s.slice(0, 10).split('-').map(Number); return Date.UTC(y, m - 1, d); }
 function pushToDevice(e) {
-  if (!N || !e.syncDevice || !D.settings.deviceCalendarId) return;
+  if (!CAL || !e.syncDevice || !D.settings.deviceCalendarId) return;
   try {
-    const res = N.upsertDeviceEvent(JSON.stringify({
+    const res = CAL.upsertDeviceEvent(JSON.stringify({
       deviceId: e.deviceId || -1, calendarId: Number(D.settings.deviceCalendarId), title: e.title, description: e.desc || '', location: e.location || '',
       start: e.allDay ? utcDay(e.start) : parseDT(e.start).getTime(),
       end: e.allDay ? utcDay(e.start) + 86400000 : parseDT(e.end || e.start).getTime(), allDay: !!e.allDay,
@@ -2212,11 +2221,11 @@ const ACTIONS = {
       <dt>Календарь</dt><dd>${esc(e.calendar)}</dd>${e.location ? `<dt>Где</dt><dd>${esc(e.location)}</dd>` : ''}</dl>
       ${e.description ? `<div class="desc mt small">${esc(e.description)}</div>` : ''}
       ${e.recurring ? '<div class="sub mt">🔁 Повторяющееся событие</div>' : ''}
-      <div class="sub mt">Событие из календаря телефона. ${e.writable && N && N.saveDeviceEvent ? 'Его можно изменить прямо здесь — изменения сохранятся в календаре телефона.' : 'Этот календарь только для чтения.'} Добавьте событие в приложение, чтобы привязать к задачам и CRM и включить будильник.</div>
+      <div class="sub mt">Событие из календаря телефона. ${e.writable && CAL && CAL.saveDeviceEvent ? 'Его можно изменить прямо здесь — изменения сохранятся в календаре телефона.' : 'Этот календарь только для чтения.'} Добавьте событие в приложение, чтобы привязать к задачам и CRM и включить будильник.</div>
       <div class="form-actions mt">
-        ${e.writable && N && N.saveDeviceEvent ? `<button class="btn primary" data-a="dev-edit">${icon('edit')}Изменить</button>` : ''}
+        ${e.writable && CAL && CAL.saveDeviceEvent ? `<button class="btn primary" data-a="dev-edit">${icon('edit')}Изменить</button>` : ''}
         <button class="btn ${e.writable ? '' : 'primary'}" data-a="dev-adopt">${icon('link')}В приложение</button>
-        ${e.writable && N && N.saveDeviceEvent ? `<button class="btn danger" data-a="dev-delete">${icon('trash')}</button>` : ''}
+        ${e.writable && CAL && CAL.saveDeviceEvent ? `<button class="btn danger" data-a="dev-delete">${icon('trash')}</button>` : ''}
         <button class="btn" data-a="modal-close">Закрыть</button></div>`);
   },
   'dev-edit': () => { const e = ui.devPick; if (!e) return; modal(null); openSheet('devEvent', null, { edit: true, preset: { ev: e } }); },
@@ -2236,7 +2245,7 @@ const ACTIONS = {
   'dev-delete-do': (el) => {
     const e = ui.devPick;
     if (!e) return;
-    const ok = N.deleteDeviceEventEx(e.eventId, el.dataset.id, e.begin);
+    const ok = CAL.deleteDeviceEventEx(e.eventId, el.dataset.id, e.begin);
     modal(null);
     if (!ok) { toast('Не удалось удалить'); return; }
     ui.stack = ui.stack.filter((x) => x.type !== 'devEvent');
@@ -2309,10 +2318,10 @@ const ACTIONS = {
   'test-alarm': (el) => { if (N) { N.testAlarm(el.dataset.id === '1'); toast('Сигнал прозвучит через 5 секунд — можно заблокировать экран'); } else toast('Доступно на телефоне'); },
   perm: (el) => { if (N) N.requestPermission(el.dataset.id); },
   'devcal-toggle': (el) => { toggleArr(D.settings.showDeviceCalendars, String(el.dataset.id)); save(); render(); },
-  'snapshot-now': () => { if (N && N.snapshotNow()) { toast('Снимок календаря сохранён'); render(); } else toast('Нет доступа к календарю'); },
+  'snapshot-now': () => { if (CAL && CAL.snapshotNow()) { toast('Снимок календаря сохранён'); render(); } else toast('Нет доступа к календарю'); },
   'snapshot-open': (el) => {
     let snap;
-    try { snap = JSON.parse(N.readSnapshot(el.dataset.id)); } catch (e) { toast('Не удалось открыть снимок'); return; }
+    try { snap = JSON.parse(CAL.readSnapshot(el.dataset.id)); } catch (e) { toast('Не удалось открыть снимок'); return; }
     ui.snap = snap;
     const evs = (snap.events || []).filter((e) => e.end >= Date.now() - 86400000).slice(0, 300);
     modal(`<h3>Снимок календаря от ${esc(new Date(snap.created).toLocaleString('ru-RU'))}</h3>

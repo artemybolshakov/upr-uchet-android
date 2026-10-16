@@ -1,11 +1,13 @@
 package com.artemiy.uprucheet;
 
 import android.content.Context;
+import android.os.Build;
 
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
@@ -13,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
@@ -127,6 +130,7 @@ public final class WebServer {
     private static final class Req {
         String method = "GET";
         String path = "/";
+        Map<String, String> query = new HashMap<>();
         Map<String, String> headers = new HashMap<>();
         byte[] body = new byte[0];
     }
@@ -154,6 +158,18 @@ public final class WebServer {
         String p = parts[1];
         int q = p.indexOf('?');
         r.path = q >= 0 ? p.substring(0, q) : p;
+        if (q >= 0) {
+            for (String kv : p.substring(q + 1).split("&")) {
+                if (kv.isEmpty()) continue;
+                int e = kv.indexOf('=');
+                try {
+                    String k = URLDecoder.decode(e >= 0 ? kv.substring(0, e) : kv, "UTF-8");
+                    String v = e >= 0 ? URLDecoder.decode(kv.substring(e + 1), "UTF-8") : "";
+                    r.query.put(k, v);
+                } catch (Exception ignored) {
+                }
+            }
+        }
         String h;
         while ((h = readLine(in)) != null && !h.isEmpty()) {
             int i = h.indexOf(':');
@@ -269,6 +285,18 @@ public final class WebServer {
                         json(out, 200, payload, null);
                     }
                     return;
+                case "/api/permissions":
+                case "/api/device-calendars":
+                case "/api/device-events":
+                case "/api/device-event":
+                case "/api/device-event-delete":
+                case "/api/device-event-upsert":
+                case "/api/device-event-remove":
+                case "/api/snapshots":
+                case "/api/snapshot":
+                case "/api/snapshot-now":
+                    deviceCalendar(r, out);
+                    return;
                 case "/api/logout":
                     json(out, 200, "{\"ok\":true}", "upr_session=; Path=/; Max-Age=0");
                     return;
@@ -298,6 +326,83 @@ public final class WebServer {
                 : name.endsWith(".html") ? "text/html; charset=utf-8"
                 : name.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
         send(out, 200, type, b, null);
+    }
+
+    /**
+     * Календарь телефона для веб-версии: те же методы CalendarSync, что вызывает Bridge в приложении.
+     * Запись — только POST с заголовком X-Upr (защита от отправки формы с чужой страницы).
+     */
+    private void deviceCalendar(Req r, OutputStream out) throws Exception {
+        boolean post = r.method.equals("POST");
+        boolean write = !r.path.equals("/api/permissions") && !r.path.equals("/api/device-calendars")
+                && !r.path.equals("/api/device-events") && !r.path.equals("/api/snapshots") && !r.path.equals("/api/snapshot");
+        if (write && (!post || !"1".equals(r.headers.get("x-upr")))) {
+            json(out, 400, "{\"error\":\"method\"}", null);
+            return;
+        }
+        JSONObject body = new JSONObject();
+        if (post && r.body.length > 0) {
+            try {
+                body = new JSONObject(new String(r.body, StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                json(out, 400, "{\"error\":\"json\"}", null);
+                return;
+            }
+        }
+        switch (r.path) {
+            case "/api/permissions":
+                json(out, 200, new JSONObject()
+                        .put("calendar", CalendarSync.canRead(ctx) && CalendarSync.canWrite(ctx))
+                        .put("calendarRead", CalendarSync.canRead(ctx))
+                        .put("device", Build.MANUFACTURER + " " + Build.MODEL)
+                        .toString(), null);
+                return;
+            case "/api/device-calendars":
+                json(out, 200, CalendarSync.calendars(ctx), null);
+                return;
+            case "/api/device-events": {
+                long from = parseLong(r.query.get("from"), System.currentTimeMillis() - 7L * 86_400_000L);
+                long to = parseLong(r.query.get("to"), from + 45L * 86_400_000L);
+                if (to - from > 400L * 86_400_000L) to = from + 400L * 86_400_000L; // не больше ~года за раз
+                String ids = r.query.get("ids");
+                json(out, 200, CalendarSync.events(ctx, from, to, ids == null ? "" : ids).toString(), null);
+                return;
+            }
+            case "/api/device-event":
+                json(out, 200, "{\"id\":" + CalendarSync.saveDeviceEvent(ctx, body.toString()) + "}", null);
+                return;
+            case "/api/device-event-delete":
+                json(out, 200, "{\"ok\":" + CalendarSync.deleteDeviceEvent(ctx, body.optLong("id", -1),
+                        body.optString("mode", "event"), body.optLong("originalBegin", 0)) + "}", null);
+                return;
+            case "/api/device-event-upsert":
+                json(out, 200, "{\"id\":" + CalendarSync.upsert(ctx, body.toString()) + "}", null);
+                return;
+            case "/api/device-event-remove":
+                json(out, 200, "{\"ok\":" + CalendarSync.delete(ctx, body.optLong("id", -1)) + "}", null);
+                return;
+            case "/api/snapshots":
+                json(out, 200, Store.listJson(Store.snapshotsDir(ctx)), null);
+                return;
+            case "/api/snapshot": {
+                String data = Store.read(new File(Store.snapshotsDir(ctx), Store.safeName(r.query.getOrDefault("name", ""))));
+                json(out, 200, data.isEmpty() ? "null" : data, null);
+                return;
+            }
+            case "/api/snapshot-now":
+                json(out, 200, "{\"ok\":" + CalendarSync.snapshot(ctx) + "}", null);
+                return;
+            default:
+                json(out, 404, "{\"error\":\"not found\"}", null);
+        }
+    }
+
+    private static long parseLong(String s, long def) {
+        try {
+            return s == null || s.isEmpty() ? def : (long) Double.parseDouble(s);
+        } catch (Exception e) {
+            return def;
+        }
     }
 
     private String asset(String name) {

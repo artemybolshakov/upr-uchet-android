@@ -13,7 +13,7 @@
  */
 'use strict';
 
-var APP_VERSION = '1.5.0';
+var APP_VERSION = '1.5.1';
 var SCHEMA = 3;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
 
