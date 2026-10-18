@@ -193,6 +193,8 @@
     snapshotNow: () => !!parse(call('POST', '/api/snapshot-now', {}), {}).ok,
     listSnapshots: () => call('GET', '/api/snapshots') || '[]',
     readSnapshot: (name) => call('GET', '/api/snapshot?name=' + encodeURIComponent(name)) || 'null',
+    calendarDiagnostics: (ids) => call('GET', '/api/calendar-diagnostics?ids=' + encodeURIComponent(ids || '')) || '{"errors":{"connection":"нет связи с телефоном"}}',
+    findDeviceEvents: (q, from, to) => call('GET', `/api/device-find?q=${encodeURIComponent(q || '')}&from=${Math.round(from)}&to=${Math.round(to)}`) || '{"errors":{"connection":"нет связи с телефоном"}}',
     resetCache: () => { delete cache.perm; delete cache.cals; },
   };
   // вернулись к окну — подтягиваем изменения календаря, сделанные на телефоне или на icloud.com

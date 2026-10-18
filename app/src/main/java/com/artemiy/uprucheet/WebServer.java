@@ -295,6 +295,8 @@ public final class WebServer {
                 case "/api/snapshots":
                 case "/api/snapshot":
                 case "/api/snapshot-now":
+                case "/api/calendar-diagnostics":
+                case "/api/device-find":
                     deviceCalendar(r, out);
                     return;
                 case "/api/logout":
@@ -335,7 +337,8 @@ public final class WebServer {
     private void deviceCalendar(Req r, OutputStream out) throws Exception {
         boolean post = r.method.equals("POST");
         boolean write = !r.path.equals("/api/permissions") && !r.path.equals("/api/device-calendars")
-                && !r.path.equals("/api/device-events") && !r.path.equals("/api/snapshots") && !r.path.equals("/api/snapshot");
+                && !r.path.equals("/api/device-events") && !r.path.equals("/api/snapshots") && !r.path.equals("/api/snapshot")
+                && !r.path.equals("/api/calendar-diagnostics") && !r.path.equals("/api/device-find");
         if (write && (!post || !"1".equals(r.headers.get("x-upr")))) {
             json(out, 400, "{\"error\":\"method\"}", null);
             return;
@@ -392,6 +395,15 @@ public final class WebServer {
             case "/api/snapshot-now":
                 json(out, 200, "{\"ok\":" + CalendarSync.snapshot(ctx) + "}", null);
                 return;
+            case "/api/calendar-diagnostics":
+                json(out, 200, CalendarSync.diagnostics(ctx, r.query.getOrDefault("ids", "")), null);
+                return;
+            case "/api/device-find": {
+                long from = parseLong(r.query.get("from"), System.currentTimeMillis() - 30L * 86_400_000L);
+                long to = parseLong(r.query.get("to"), from + 90L * 86_400_000L);
+                json(out, 200, CalendarSync.findEvents(ctx, r.query.getOrDefault("q", ""), from, to), null);
+                return;
+            }
             default:
                 json(out, 404, "{\"error\":\"not found\"}", null);
         }

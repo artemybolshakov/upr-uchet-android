@@ -270,6 +270,14 @@ public final class Bridge {
     }
 
     @JavascriptInterface
+    public String calendarDiagnostics(String filterCsv) { return CalendarSync.diagnostics(a, filterCsv); }
+
+    @JavascriptInterface
+    public String findDeviceEvents(String query, double from, double to) {
+        return CalendarSync.findEvents(a, query, (long) from, (long) to);
+    }
+
+    @JavascriptInterface
     public boolean snapshotNow() { return CalendarSync.snapshot(a); }
 
     @JavascriptInterface

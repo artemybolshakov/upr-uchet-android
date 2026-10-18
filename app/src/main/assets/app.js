@@ -586,7 +586,9 @@ window.__native = function (type, payload) {
     else if (payload === 'fail') toast('Не удалось сохранить в эту папку — выберите другую');
     if (ui.tab === 'settings') render();
   } else if (type === 'exported') {
-    toast(payload === 'ok' ? 'Резервная копия сохранена' : 'Копия не сохранена');
+    const csv = ui.exportKind === 'csv';
+    ui.exportKind = null;
+    toast(payload === 'ok' ? (csv ? 'Файл CSV сохранён' : 'Резервная копия сохранена') : (csv ? 'Файл CSV не сохранён' : 'Копия не сохранена'));
   } else if (type === 'permissions' || type === 'resume') {
     if (ui.tab === 'settings') render();
     if (ui.tab === 'calendar') loadDeviceEvents(true);
@@ -1110,7 +1112,8 @@ SCREENS.projects = function () {
 };
 
 /* ---------- CRM ---------- */
-SCREENS.crm = function () {
+// Карточки CRM с учётом поиска и фильтров экрана (тот же список выгружается в CSV)
+function crmFiltered() {
   const q = ui.crmQuery.trim().toLowerCase();
   const t = today();
   let list = D.contacts.filter((c) => !q || [c.name, c.company, c.role, c.phone, c.email, c.contacts, (c.tags || []).join(' '), (c.types || []).join(' '), (c.statuses || []).join(' ')].join(' ').toLowerCase().includes(q));
@@ -1124,8 +1127,12 @@ SCREENS.crm = function () {
     if (oa !== ob) return oa - ob;
     return a.name.localeCompare(b.name, 'ru');
   });
+  return list;
+}
+SCREENS.crm = function () {
+  const list = crmFiltered();
   const f = [['all', 'Все'], ['overdue', 'Просрочены'], ['today', 'Сегодня'], ['tasks', 'С задачами']];
-  return `<div class="head"><h1>CRM</h1><button class="btn primary" data-a="new" data-type="contact">${icon('plus')}<span>Контакт</span></button></div>
+  return `<div class="head"><h1>CRM</h1>${D.contacts.length ? `<button class="btn" data-a="crm-csv" title="Выгрузить карточки в CSV">${icon('share')}<span>CSV</span></button>` : ''}<button class="btn primary" data-a="new" data-type="contact">${icon('plus')}<span>Контакт</span></button></div>
     ${searchBox('crmQuery', 'Поиск: имя, компания, телефон, тег', ui.crmQuery)}
     <div class="seg mt">${f.map(([k, n]) => `<button class="${ui.crmFilter === k ? 'on' : ''}" data-a="crm-filter" data-id="${k}">${n}</button>`).join('')}</div>
     <div class="crm-sel mt" style="margin-bottom:12px">
@@ -1465,6 +1472,7 @@ SCREENS.settings = function () {
     try { snaps = JSON.parse(CAL.listSnapshots() || '[]'); } catch (e) { /* */ }
     try { ui.devCals = perms.calendar ? JSON.parse(CAL.deviceCalendars() || '[]') : []; } catch (e) { ui.devCals = []; }
   }
+  cleanStaleCalendarFilter();
   const perm = (k, title, hint) => `<div class="perm"><div class="grow"><div>${title}</div><div class="sub">${hint}</div></div>${perms[k] ? '<span class="ok">включено</span>' : `<button class="btn sm" data-a="perm" data-id="${k}">Разрешить</button>`}</div>`;
   const fmtSize = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(b / 1024)) + ' КБ';
   return `<div class="head"><button class="icon-btn only-narrow" data-a="tab" data-id="home">${icon('back')}</button><h1>Настройки</h1></div>
@@ -1510,12 +1518,13 @@ SCREENS.settings = function () {
       <label class="toggle"><input type="checkbox" data-a="set-bool" data-key="showDeviceEvents" ${s.showDeviceEvents ? 'checked' : ''}><span class="grow">Показывать события календаря телефона<small>Их можно изменять, удалять и привязывать к задачам и контактам</small></span></label>
       ${ui.devCals.length ? `
         <div class="field"><label>Какие календари показывать (пусто — все)</label>
-          <div class="picker">${ui.devCals.map((c) => `<button class="chip ${s.showDeviceCalendars.includes(String(c.id)) ? 'blue' : ''}" data-a="devcal-toggle" data-id="${c.id}"><i class="dot" style="background:${esc(c.color)}"></i>${esc(c.name)}</button>`).join('')}</div></div>
+          <div class="picker">${ui.devCals.map((c) => `<button class="chip ${s.showDeviceCalendars.includes(String(c.id)) ? 'blue' : ''}" data-a="devcal-toggle" data-id="${c.id}"><i class="dot" style="background:${esc(c.color)}"></i>${esc(c.name)}${c.account ? ' — ' + esc(c.account) : ''}</button>`).join('')}</div></div>
         <div class="field"><label>Куда записывать события приложения</label>
           <select data-setting="deviceCalendarId"><option value="">Не записывать</option>${ui.devCals.filter((c) => c.writable).map((c) => `<option value="${c.id}" ${String(s.deviceCalendarId) === String(c.id) ? 'selected' : ''}>${esc(c.name)}${c.account ? ' — ' + esc(c.account) : ''}</option>`).join('')}</select></div>`
       : `<div class="sub">${N ? 'Разрешите доступ к календарю выше, чтобы выбрать календари.'
         : CAL ? (perms.calendar ? 'На телефоне не найдено ни одного календаря.' : 'Разрешите приложению доступ к календарю на телефоне: Настройки → Разрешения → Календарь.')
         : 'Доступно в приложении на телефоне.'}</div>`}
+      ${CAL ? diagBlock() : ''}
       <div class="row"><b class="grow">Офлайн-копии календаря</b>${CAL ? `<button class="btn sm" data-a="snapshot-now">${icon('backup')}Снимок сейчас</button>` : ''}</div>
       <div class="sub">Каждый день приложение сохраняет у себя копию событий календаря телефона (−60 … +365 дней). Хранится 30 последних снимков; они не зависят от серверов.</div>
       ${snaps.length ? `<div class="list">${snaps.slice(0, 10).map((f) => `<div class="item" data-a="snapshot-open" data-id="${esc(f.name)}"><div class="grow"><div class="t">${esc(f.name.replace('cal-', '').replace('.json', ''))}</div><div class="s">${fmtSize(f.size)}</div></div></div>`).join('')}</div>` : ''}
@@ -1544,6 +1553,144 @@ SCREENS.settings = function () {
       <div class="row mt"><button class="btn sm" data-a="demo">Заполнить примером</button><button class="btn sm danger" data-a="wipe">Удалить все данные</button></div>
     </div>`;
 };
+/* ---------- Выгрузка CRM в CSV ---------- */
+// Заголовки совпадают с тем, что понимает импорт (import.js): файл можно загрузить обратно.
+const CRM_CSV_COLUMNS = [
+  ['Имя', (c) => c.name],
+  ['Компания', (c) => c.company],
+  ['Должность', (c) => c.role],
+  ['Телефон', (c) => c.phone],
+  ['Почта', (c) => c.email],
+  ['Контакты', (c) => c.contacts],
+  ['Дата рождения', (c) => ruDate(c.birthday)],
+  ['Тип контакта', (c) => (c.types || []).join(', ')],
+  ['Статус', (c) => (c.statuses || []).join(', ')],
+  ['Теги', (c) => (c.tags || []).join(', ')],
+  ['Следующий контакт', (c) => ruDate(c.nextContact)],
+  ['Напоминать', (c) => (c.remind !== false ? 'да' : 'нет')],
+  ['Комментарий', (c) => c.comment],
+  ['Проекты', (c) => Array.from(new Set(tasksOfContact(c.id).map((t) => t.projectId && project(t.projectId)).filter(Boolean).map((p) => p.name))).join(', ')],
+  ['Открытые задачи', (c) => tasksOfContact(c.id).filter((t) => !isDone(t)).map((t) => t.title).join('; ')],
+  ['Фото', (c) => c.photo],
+  ['Создана', (c) => ruDate((c.createdAt || '').slice(0, 10))],
+  ['ID в 管理会计', (c) => c.id],
+];
+// ГГГГ-ММ-ДД → ДД.ММ.ГГГГ (так даты узнаёт Excel с русскими настройками)
+function ruDate(s) { return /^\d{4}-\d{2}-\d{2}/.test(s || '') ? s.slice(8, 10) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4) : (s || ''); }
+function csvCell(v, sep) {
+  let s = v == null ? '' : String(v);
+  // Защита от формул в Excel/Таблицах: =, @ и «+/-» не перед номером телефона
+  if (/^[=@\t\r]/.test(s) || (/^[+-]/.test(s) && !/^[+-]?[\d\s().-]+$/.test(s))) s = "'" + s;
+  return /["\r\n]/.test(s) || s.includes(sep) || /^\s|\s$/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function crmCsv(list, sep) {
+  const rows = [CRM_CSV_COLUMNS.map(([h]) => h)].concat(list.map((c) => CRM_CSV_COLUMNS.map(([, f]) => f(c))));
+  return '\uFEFF' + rows.map((r) => r.map((v) => csvCell(v, sep)).join(sep)).join('\r\n') + '\r\n';
+}
+function saveTextFile(txt, name, mime, kind) {
+  ui.exportKind = kind;
+  if (N) N.exportFile(txt, name, mime);
+  else {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([txt], { type: mime + ';charset=utf-8' }));
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast(kind === 'csv' ? 'Файл CSV скачан' : 'Файл скачан');
+  }
+}
+
+/* ---------- Диагностика календарей ---------- */
+// id из фильтра «Какие календари показывать», которых нет среди календарей телефона.
+// Удаляем только когда список календарей загружен (не пуст): при сбое чтения фильтр не трогаем.
+function cleanStaleCalendarFilter() {
+  if (!ui.devCals.length) return;
+  const ids = new Set(ui.devCals.map((c) => String(c.id)));
+  const list = D.settings.showDeviceCalendars || [];
+  const stale = list.filter((x) => !ids.has(String(x)));
+  if (!stale.length) return;
+  D.settings.showDeviceCalendars = list.filter((x) => ids.has(String(x)));
+  ui.staleRemoved = (ui.staleRemoved || []).concat(stale);
+  save();
+}
+function loadDiag() {
+  try { ui.diagData = JSON.parse(CAL.calendarDiagnostics((D.settings.showDeviceCalendars || []).join(',')) || '{}'); } catch (e) { ui.diagData = { errors: { diagnostics: String(e) } }; }
+}
+const ACCOUNT_TYPES = { 'bitfire.at.davdroid': 'DAVx⁵', 'com.google': 'Google', LOCAL: 'локальный', 'com.android.exchange': 'Exchange', 'com.google.android.gm.exchange': 'Exchange', 'com.samsung.android.exchange': 'Exchange', 'com.android.huawei.phone': 'Huawei', 'com.huawei.hwid': 'Huawei ID' };
+const accountTypeName = (t) => ACCOUNT_TYPES[t] || (/huawei|honor/i.test(t) ? 'Huawei' : /icloud|apple/i.test(t) ? 'iCloud' : /davx|davdroid|caldav/i.test(t) ? 'CalDAV' : '');
+function accessName(n) {
+  return n >= 700 ? 'владелец · запись' : n >= 600 ? 'редактор · запись' : n >= 500 ? 'запись' : n >= 200 ? 'только чтение' : n >= 100 ? 'только «занят/свободен»' : 'нет доступа';
+}
+const flag = (v, yes, no) => `<span class="dg-f ${v ? 'ok' : 'bad'}">${v ? '✓' : '✗'} ${v ? yes : no}</span>`;
+const fmtDT = (ms, allDay) => { const d = new Date(ms); return allDay ? fmtDate(new Date(ms).toISOString().slice(0, 10)) : fmtDate(ymd(d)) + ' ' + hm(d); };
+function diagErrors(errs) {
+  const names = { permission: 'Разрешение', calendars: 'Список календарей', instances: 'Повторения (Instances)', events: 'Таблица событий', find: 'Поиск', diagnostics: 'Диагностика', connection: 'Связь', lastCalendarsError: 'Последний запрос календарей', lastEventsError: 'Последний запрос событий' };
+  const list = Object.entries(errs || {}).filter(([, v]) => v);
+  return list.length ? `<div class="dg-err">${list.map(([k, v]) => `<div><b>${esc(names[k] || k)}:</b> ${esc(v)}</div>`).join('')}</div>` : '';
+}
+function diagBlock() {
+  const open = !!ui.diagOpen;
+  const head = `<button class="dg-head" data-a="diag-toggle" aria-expanded="${open}"><span class="dg-arrow">${open ? '▾' : '▸'}</span><b class="grow">Диагностика календарей</b><span class="sub">${open ? '' : 'если события пропали'}</span></button>`;
+  if (!open) return `<div class="dg">${head}</div>`;
+  const d = ui.diagData || {};
+  const filter = D.settings.showDeviceCalendars || [];
+  const cals = (d.calendars || []).slice().sort((a, b) => (a.account + a.name).localeCompare(b.account + b.name, 'ru'));
+  const stale = d.staleFilter || [];
+  const last = { lastCalendarsError: d.lastCalendarsError, lastEventsError: d.lastEventsError };
+  const rows = cals.map((c) => `<div class="dg-cal ${c.inFilter ? '' : 'off'}">
+      <div class="row" style="gap:8px"><i class="dot" style="background:${esc(c.color)};width:12px;height:12px"></i><b class="grow ellipsis">${esc(c.name || '(без названия)')}</b><span class="dg-n" title="Повторений за −30…+60 дней, которые видит приложение / строк в таблице событий">${c.instances} / ${c.rows}</span></div>
+      <div class="sub">${esc(c.account || '—')} · ${accountTypeName(c.accountType) ? esc(accountTypeName(c.accountType)) + ' · ' : ''}<code>${esc(c.accountType || '—')}</code> · id ${c.id} · ${esc(c.color)}</div>
+      <div class="dg-flags">${flag(c.visible, 'VISIBLE', 'VISIBLE=0 (скрыт)')}${flag(c.syncEvents, 'SYNC_EVENTS', 'SYNC_EVENTS=0')}<span class="dg-f ${c.writable ? 'ok' : ''}">${esc(accessName(c.access))} (${c.access})</span>${flag(c.inFilter, filter.length ? 'в фильтре' : 'фильтр пуст — показывается', 'отфильтрован')}</div>
+      ${!c.syncEvents ? '<div class="sub dg-warn">События этого календаря не синхронизируются — Android может не показывать их в приложениях.</div>' : ''}
+      ${c.rows > 0 && c.instances === 0 ? '<div class="sub dg-warn">В таблице событий есть записи, но Android не создал по ним ни одного повторения в этом диапазоне.</div>' : ''}
+    </div>`).join('');
+  const f = ui.diagFind;
+  return `<div class="dg">${head}
+    <div class="dg-body">
+      <div class="row" style="gap:8px"><span class="sub grow">Чтение: ${d.canRead ? '✓' : '✗'} · запись: ${d.canWrite ? '✓' : '✗'} · показ событий телефона: ${D.settings.showDeviceEvents ? 'включён' : '<b>выключен</b>'} · числа — за −30…+60 дней: повторения, которые видит приложение / строки таблицы событий</span><button class="btn sm" data-a="diag-refresh">Обновить</button></div>
+      ${diagErrors(Object.assign({}, d.errors || {}, last))}
+      ${ui.staleRemoved && ui.staleRemoved.length ? `<div class="sub dg-info">Из фильтра автоматически удалено несуществующих календарей: ${ui.staleRemoved.length} (id ${esc(ui.staleRemoved.join(', '))}).</div>` : ''}
+      ${stale.length ? `<div class="dg-stale"><span class="grow">В фильтре ${stale.length} ${plural(stale.length, 'несуществующий календарь', 'несуществующих календаря', 'несуществующих календарей')} (id ${esc(stale.join(', '))})${stale.length === filter.length ? ' — из-за этого не показывается ни одно событие телефона' : ''}</span><button class="btn sm danger" data-a="diag-clean">Очистить</button></div>` : ''}
+      ${cals.length ? `<div class="dg-cals">${rows}</div>` : `<div class="sub">${d.canRead === false ? 'Нет разрешения на чтение календаря.' : 'Приложение не видит ни одного календаря через CalendarContract. Проверьте, что аккаунт календаря (iCloud через DAVx⁵, Google, Huawei) добавлен в системные настройки телефона и синхронизирован.'}</div>`}
+      <div class="field mt"><label>Найти событие во всём календаре телефона (без фильтров)</label>
+        <div class="row"><input class="search grow" id="diag-q" placeholder="Часть названия" value="${esc(ui.diagQ || '')}"><button class="btn" data-a="diag-find">Найти</button></div>
+        <div class="sub">Даты проверяются по текущему виду календаря: ${esc(CAL_VIEWS.find(([k]) => k === calView())[1].toLowerCase())}, ${esc(calTitle())}.</div></div>
+      ${f ? diagFindResult(f) : ''}
+    </div></div>`;
+}
+// Причины, по которым найденное событие телефона не видно в приложении
+function devEventReasons(e) {
+  const r = [];
+  const filter = D.settings.showDeviceCalendars || [];
+  const cal = `«${e.calendar || 'календарь ' + e.calendarId}»${e.account ? ' (' + e.account + ')' : ''}`;
+  if (!D.settings.showDeviceEvents) r.push('выключено «Показывать события календаря телефона»');
+  if (e.deleted) r.push('событие помечено удалённым и ждёт синхронизации с сервером');
+  if (filter.length && !filter.includes(String(e.calendarId))) r.push(`календарь ${cal} отфильтрован — включите его в «Какие календари показывать»`);
+  const linked = D.events.find((x) => x.deviceId && (String(x.deviceId) === String(e.eventId) || (e.exceptionOf && String(x.deviceId) === String(e.exceptionOf))));
+  if (linked) r.push(`связано с событием приложения «${linked.title}» — показывается как событие приложения, а не как событие телефона`);
+  if (!e.total) r.push(`Android не создал ни одного повторения этого события${e.calSync ? '' : ' — у календаря SYNC_EVENTS=0'}, поэтому календари его не показывают`);
+  else if (!e.inRange) r.push(`вне диапазона дат текущего вида календаря (${calTitle()}); ближайшее повторение — ${fmtDT(e.nearest, e.allDay)}`);
+  if (!e.calVisible) r.push(`календарь ${cal} скрыт на телефоне (VISIBLE=0) — на некоторых телефонах такие события не отдаются приложениям`);
+  return r;
+}
+function diagFindResult(f) {
+  const errs = diagErrors(f.errors);
+  const list = f.events || [];
+  if (!list.length) {
+    return errs + (f.query ? `<div class="dg-res"><b>«${esc(f.query)}» не найдено в календаре Android.</b><div class="sub">Значит, телефон не получил это событие: проверьте, что аккаунт календаря синхронизирован (для iCloud — DAVx⁵ или другое приложение синхронизации) и календарь включён в нём. Поиск идёт по названию, без учёта регистра.</div></div>` : '');
+  }
+  return errs + `<div class="sub mt">Найдено: ${list.length}${list.length >= 30 ? ' (показаны первые 30)' : ''}</div>` + list.map((e) => {
+    const reasons = devEventReasons(e);
+    const when = e.inRange || !e.nearest ? fmtDT(e.dtstart, e.allDay) : fmtDT(e.nearest, e.allDay);
+    return `<div class="dg-res">
+      <div class="row" style="gap:8px"><b class="grow">${esc(e.title)}</b>${e.recurring ? '<span class="chip">🔁 повторяется</span>' : ''}</div>
+      <div class="sub">${esc(e.calendar || '?')}${e.account ? ' — ' + esc(e.account) : ''} · ${esc(when)} · id ${e.eventId} · повторений в виде: ${e.inRange}, за ±2 года: ${e.total}</div>
+      ${reasons.length ? `<ul class="dg-why">${reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
+        : `<div class="dg-okline">Должно быть видно в календаре приложения. <button class="btn sm" data-a="diag-goto" data-id="${esc(ymd(new Date(e.inRange ? e.dtstart : e.nearest || e.dtstart)))}">Открыть день</button></div>`}
+    </div>`;
+  }).join('');
+}
+
 function folderBackupBlock() {
   let st = {};
   try { st = JSON.parse(N.folderBackupStatus() || '{}'); } catch (e) { /* */ }
@@ -2077,6 +2224,29 @@ const ACTIONS = {
   'confirm-yes': () => { const f = ui.onConfirm; ui.onConfirm = null; modal(null); if (f) f(); },
   'home-filter': (el) => { ui.homeFilter = el.dataset.id && ui.homeFilter !== el.dataset.id ? el.dataset.id : null; render(); },
   'crm-filter': (el) => { ui.crmFilter = el.dataset.id; render(); },
+  'crm-csv': () => {
+    const shown = crmFiltered().length, all = D.contacts.length;
+    const filtered = shown !== all;
+    const sep = D.settings.csvSep === ',' ? ',' : ';';
+    modal(`<h3>Выгрузить карточки CRM в CSV</h3>
+      <div class="form">
+        ${filtered ? `<label class="toggle"><input type="radio" name="csv-scope" value="shown" checked><span class="grow">Только показанные — ${shown}<small>С учётом поиска и фильтров на экране CRM</small></span></label>` : ''}
+        <label class="toggle"><input type="radio" name="csv-scope" value="all" ${filtered ? '' : 'checked'}><span class="grow">Все карточки — ${all}</span></label>
+        <div class="field"><label>Разделитель</label><select id="csv-sep">
+          <option value=";" ${sep === ';' ? 'selected' : ''}>Точка с запятой — для Excel</option>
+          <option value="," ${sep === ',' ? 'selected' : ''}>Запятая — для Google Таблиц и Numbers</option></select></div>
+        <div class="sub">Кодировка UTF-8. Колонки: имя, компания, должность, телефон, почта, контакты, дата рождения, тип, статус, теги, следующий контакт, комментарий, проекты и открытые задачи. Файл можно загрузить обратно через импорт.</div>
+      </div>
+      <div class="form-actions mt"><button class="btn primary" data-a="crm-csv-do">${icon('share')}Выгрузить</button><button class="btn" data-a="modal-close">Отмена</button></div>`);
+  },
+  'crm-csv-do': () => {
+    const scope = ($('input[name=csv-scope]:checked') || {}).value || 'all';
+    const sep = ($('#csv-sep') || {}).value === ',' ? ',' : ';';
+    if (D.settings.csvSep !== sep) { D.settings.csvSep = sep; save(); }
+    const list = scope === 'shown' ? crmFiltered() : D.contacts.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    modal(null);
+    saveTextFile(crmCsv(list, sep), `管理会计-CRM-${today()}.csv`, 'text/csv', 'csv');
+  },
   'clear-input': (el) => {
     const k = el.dataset.id;
     if (k === 'pickerQ') { ui.picker.q = ''; ui.picker.focus = true; renderPicker(); return; }
@@ -2317,7 +2487,23 @@ const ACTIONS = {
   'person-del': (el) => { const p = el.dataset.id; D.settings.people = D.settings.people.filter((x) => x !== p); save(); render(); toast('Задачи исполнителя «' + p + '» сохранены'); },
   'test-alarm': (el) => { if (N) { N.testAlarm(el.dataset.id === '1'); toast('Сигнал прозвучит через 5 секунд — можно заблокировать экран'); } else toast('Доступно на телефоне'); },
   perm: (el) => { if (N) N.requestPermission(el.dataset.id); },
-  'devcal-toggle': (el) => { toggleArr(D.settings.showDeviceCalendars, String(el.dataset.id)); save(); render(); },
+  'diag-toggle': () => { ui.diagOpen = !ui.diagOpen; if (ui.diagOpen && !ui.diagData) loadDiag(); render(); },
+  'diag-refresh': () => { if (CAL && CAL.resetCache) CAL.resetCache(); loadDiag(); render(); },
+  'diag-clean': () => {
+    const stale = (ui.diagData && ui.diagData.staleFilter) || [];
+    D.settings.showDeviceCalendars = (D.settings.showDeviceCalendars || []).filter((x) => !stale.includes(String(x)));
+    save(true); loadDiag(); render(); toast('Фильтр календарей очищен');
+  },
+  'diag-find': () => {
+    const q = (($('#diag-q') || {}).value || '').trim();
+    ui.diagQ = q;
+    if (!q) { ui.diagFind = null; render(); return; }
+    const [from, to] = calRange();
+    try { ui.diagFind = JSON.parse(CAL.findDeviceEvents(q, from, to) || '{}'); } catch (e) { ui.diagFind = { query: q, errors: { find: String(e) } }; }
+    render();
+  },
+  'diag-goto': (el) => { setCalDay(el.dataset.id); D.settings.calView = 'day'; save(); go('calendar'); },
+  'devcal-toggle': (el) => { toggleArr(D.settings.showDeviceCalendars, String(el.dataset.id)); save(); if (ui.diagOpen) loadDiag(); render(); },
   'snapshot-now': () => { if (CAL && CAL.snapshotNow()) { toast('Снимок календаря сохранён'); render(); } else toast('Нет доступа к календарю'); },
   'snapshot-open': (el) => {
     let snap;
@@ -2351,8 +2537,7 @@ const ACTIONS = {
   'backup-export': () => {
     const name = '管理会计-копия-' + today() + '.json';
     const txt = JSON.stringify(makeBackup(), null, 1);
-    if (N) N.exportFile(txt, name, 'application/json');
-    else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = name; a.click(); }
+    saveTextFile(txt, name, 'application/json', 'backup');
   },
   'backup-import': () => {
     if (N) { N.importFile(); return; }
@@ -2386,6 +2571,7 @@ document.addEventListener('change', (ev) => {
   $$('.app-only', ev.target.closest('form')).forEach((x) => { x.hidden = !isApp; });
 });
 document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'diag-q') { ev.preventDefault(); ACTIONS['diag-find'](); return; }
   if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('[data-msel-new]')) { ev.preventDefault(); ACTIONS['msel-add'](ev.target); }
 });
 document.addEventListener('change', (ev) => {
