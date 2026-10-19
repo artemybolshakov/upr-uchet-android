@@ -13,8 +13,8 @@
  */
 'use strict';
 
-var APP_VERSION = '1.5.3';
-var SCHEMA = 3;
+var APP_VERSION = '1.6.0';
+var SCHEMA = 4;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
 
 function emptyData() {
@@ -50,12 +50,14 @@ function emptyData() {
       calView: 'month',
       kanbanOrder: {},
       newEventTarget: 'app',
+      mapId: null,
     },
     tasks: [],
     contacts: [],
     events: [],
     notes: [],
     projects: [],
+    maps: [],
   };
 }
 
@@ -100,7 +102,74 @@ var MIGRATIONS = {
     d.schema = 3;
     return d;
   },
+  // v3 → v4: ответственный за проект и «Карты ответственных»
+  3: function (d) {
+    (d.projects || []).forEach(function (p) { if (p && p.ownerId === undefined) p.ownerId = null; });
+    if (!Array.isArray(d.maps)) d.maps = [];
+    d.schema = 4;
+    return d;
+  },
 };
+
+/* ---------- Карты ответственных ----------
+ * maps[]: { id, name, nodes[], createdAt, updatedAt, view? }
+ * узел:   { id, type: 'person' | 'project' | 'group', ref, parentId, collapsed }
+ *   ref: для person — имя из settings.people, для project — id проекта, для group — название направления.
+ * Карта хранит только состав и структуру; счётчики не сохраняются (их считает respmap.js из задач).
+ */
+var MAP_NODE_TYPES = { person: true, project: true, group: true };
+function rid(p) { return p + Math.random().toString(36).slice(2, 10); }
+
+/* Приводит карты в порядок и убирает узлы с битыми ссылками (человек или проект удалён).
+   Дочерние узлы удалённого переходят к его родителю. Возвращает число убранных узлов. */
+function pruneMaps(d) {
+  var removed = 0;
+  var people = {}, pids = {};
+  ((d.settings && d.settings.people) || []).forEach(function (x) { people[x] = true; });
+  (d.projects || []).forEach(function (x) { pids[x.id] = true; });
+  if (!Array.isArray(d.maps)) d.maps = [];
+  d.maps = d.maps.filter(function (m) { return m && typeof m === 'object' && !Array.isArray(m); });
+  d.maps.forEach(function (m) {
+    if (!m.id) m.id = rid('m');
+    m.name = m.name == null || m.name === '' ? 'Карта' : String(m.name);
+    if (!m.createdAt) m.createdAt = new Date().toISOString();
+    if (m.updatedAt === undefined) m.updatedAt = m.createdAt;
+    if (m.view !== undefined && m.view !== 'tree' && m.view !== 'cards') delete m.view;
+    var nodes = (Array.isArray(m.nodes) ? m.nodes : []).filter(function (n) { return n && typeof n === 'object' && MAP_NODE_TYPES[n.type]; });
+    nodes.forEach(function (n) {
+      if (!n.id) n.id = rid('n');
+      n.id = String(n.id);
+      n.ref = n.ref == null ? null : String(n.ref);
+      n.parentId = n.parentId == null || n.parentId === '' ? null : String(n.parentId);
+      n.collapsed = !!n.collapsed;
+      if (n.type === 'group' && !n.ref) n.ref = 'Направление';
+    });
+    var broken = function (n) { return (n.type === 'person' && !people[n.ref]) || (n.type === 'project' && !pids[n.ref]); };
+    var gone = {};
+    nodes.forEach(function (n) { if (broken(n)) gone[n.id] = n; });
+    var keep = nodes.filter(function (n) { return !gone[n.id]; });
+    removed += nodes.length - keep.length;
+    // дети убранных узлов поднимаются к ближайшему сохранившемуся предку
+    keep.forEach(function (n) {
+      var guard = 0;
+      while (n.parentId && gone[n.parentId] && guard++ < 1000) n.parentId = gone[n.parentId].parentId;
+    });
+    var byId = {};
+    keep.forEach(function (n) { byId[n.id] = n; });
+    keep.forEach(function (n) { if (n.parentId && (!byId[n.parentId] || n.parentId === n.id)) n.parentId = null; });
+    // разрываем циклы
+    keep.forEach(function (n) {
+      var seen = {}, cur = n;
+      while (cur && cur.parentId) {
+        if (seen[cur.id]) { n.parentId = null; break; }
+        seen[cur.id] = true;
+        cur = byId[cur.parentId];
+      }
+    });
+    m.nodes = keep;
+  });
+  return removed;
+}
 
 /* Приводит данные любой версии к текущей. Безопасно вызывать повторно. */
 function migrate(raw) {
@@ -150,6 +219,8 @@ function migrate(raw) {
     p.archived = !!p.archived;
     if (p.category == null) p.category = '';
     p.category = String(p.category);
+    // ответственный — имя из списка исполнителей или null
+    if (p.ownerId === undefined || p.ownerId === '' || (p.ownerId !== null && (typeof p.ownerId !== 'string' || d.settings.people.indexOf(p.ownerId) < 0))) p.ownerId = null;
   });
   if (!Array.isArray(d.settings.projectCategories)) d.settings.projectCategories = [];
   if (!d.settings.kanbanOrder || typeof d.settings.kanbanOrder !== 'object' || Array.isArray(d.settings.kanbanOrder)) d.settings.kanbanOrder = {};
@@ -158,6 +229,8 @@ function migrate(raw) {
   var pids = {};
   d.projects.forEach(function (p) { pids[p.id] = true; });
   d.tasks.forEach(function (t) { if (t.projectId && !pids[t.projectId]) t.projectId = null; });
+  pruneMaps(d);
+  if (d.settings.mapId != null && !d.maps.some(function (m) { return m.id === d.settings.mapId; })) d.settings.mapId = null;
   if (d.schema > SCHEMA) d.newerSchema = d.schema; // данные из более новой версии: неизвестные поля сохраняются как есть
   else { d.schema = SCHEMA; delete d.newerSchema; }
   return d;
@@ -167,7 +240,8 @@ function migrate(raw) {
 function validateData(d) {
   var p = [];
   if (!d || typeof d !== 'object') return ['нет данных'];
-  ['tasks', 'contacts', 'events', 'notes', 'projects'].forEach(function (k) { if (!Array.isArray(d[k])) p.push(k + ' не массив'); });
+  ['tasks', 'contacts', 'events', 'notes', 'projects', 'maps'].forEach(function (k) { if (!Array.isArray(d[k])) p.push(k + ' не массив'); });
+  (d.maps || []).forEach(function (m, i) { if (!m.id || !Array.isArray(m.nodes)) p.push('карта #' + i); });
   if (!d.settings || !Array.isArray(d.settings.people) || !Array.isArray(d.settings.statuses)) p.push('settings повреждены');
   (d.tasks || []).forEach(function (t, i) { if (!t.id || !Array.isArray(t.crmIds) || !Array.isArray(t.eventIds) || !Array.isArray(t.deps)) p.push('задача #' + i); });
   (d.contacts || []).forEach(function (c, i) { if (!c.id || !Array.isArray(c.types) || !Array.isArray(c.statuses)) p.push('контакт #' + i); });
@@ -195,5 +269,5 @@ function parseBackup(text) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { APP_VERSION: APP_VERSION, SCHEMA: SCHEMA, BACKUP_FORMAT: BACKUP_FORMAT, emptyData: emptyData, migrate: migrate, MIGRATIONS: MIGRATIONS, validateData: validateData, wrapBackup: wrapBackup, parseBackup: parseBackup, htmlToText: htmlToText, textToHtml: textToHtml };
+  module.exports = { APP_VERSION: APP_VERSION, SCHEMA: SCHEMA, BACKUP_FORMAT: BACKUP_FORMAT, emptyData: emptyData, migrate: migrate, MIGRATIONS: MIGRATIONS, validateData: validateData, wrapBackup: wrapBackup, parseBackup: parseBackup, htmlToText: htmlToText, textToHtml: textToHtml, pruneMaps: pruneMaps };
 }

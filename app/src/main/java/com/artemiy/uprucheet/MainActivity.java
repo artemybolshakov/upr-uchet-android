@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
     String pendingExport;
     String pendingImportKind = "";
     private String pendingOpen;
+    private String pendingUpdate;
     private boolean pageReady;
 
     private static java.lang.ref.WeakReference<MainActivity> currentRef = new java.lang.ref.WeakReference<>(null);
@@ -80,6 +81,10 @@ public class MainActivity extends Activity {
                     emit("open", pendingOpen);
                     pendingOpen = null;
                 }
+                if (pendingUpdate != null) {
+                    emit("update", pendingUpdate);
+                    pendingUpdate = null;
+                }
             }
         });
         webView.setWebChromeClient(new WebChromeClient());
@@ -92,6 +97,7 @@ public class MainActivity extends Activity {
             Store.autoBackup(this, false);
             FolderBackup.run(this, false);
             CalendarSync.snapshot(this);
+            Uploads.cleanup(this); // остатки прерванных загрузок с компьютера
         }).start();
     }
 
@@ -103,6 +109,12 @@ public class MainActivity extends Activity {
 
     private void handleIntent(Intent intent) {
         if (intent == null) return;
+        // нажатие на уведомление «Новая версия получена — установить»
+        String upd = intent.getStringExtra("update");
+        if (upd != null && !upd.isEmpty()) {
+            intent.removeExtra("update");
+            if (pageReady) emit("update", upd); else pendingUpdate = upd;
+        }
         String open = intent.getStringExtra("open");
         if (open == null || open.isEmpty()) return;
         if (pageReady) emit("open", open);

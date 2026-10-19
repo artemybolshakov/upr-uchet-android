@@ -87,7 +87,7 @@ public final class WebServer {
             while (running) {
                 try {
                     Socket c = server.accept();
-                    c.setSoTimeout(30000);
+                    c.setSoTimeout(30000); // для загрузки файла — 30 с тишины на сокете = обрыв, .part удаляется
                     pool.execute(() -> handle(c));
                 } catch (Exception e) {
                     if (!running) break;
@@ -133,6 +133,8 @@ public final class WebServer {
         Map<String, String> query = new HashMap<>();
         Map<String, String> headers = new HashMap<>();
         byte[] body = new byte[0];
+        long length;            // Content-Length
+        InputStream stream;     // для /api/upload тело не читается заранее — его пишет в файл обработчик
     }
 
     private void handle(Socket c) {
@@ -175,9 +177,12 @@ public final class WebServer {
             int i = h.indexOf(':');
             if (i > 0) r.headers.put(h.substring(0, i).trim().toLowerCase(Locale.US), h.substring(i + 1).trim());
         }
-        int len = 0;
-        try { len = Integer.parseInt(r.headers.getOrDefault("content-length", "0")); } catch (Exception ignored) {}
-        if (len < 0 || len > MAX_BODY) return null;
+        long clen = 0;
+        try { clen = Long.parseLong(r.headers.getOrDefault("content-length", "0").trim()); } catch (Exception ignored) {}
+        r.length = clen;
+        if (r.path.equals("/api/upload")) { r.stream = in; return r; } // большие файлы — потоком, без MAX_BODY
+        if (clen < 0 || clen > MAX_BODY) return null;
+        int len = (int) clen;
         if (len > 0) {
             byte[] b = new byte[len];
             int off = 0;
@@ -299,6 +304,12 @@ public final class WebServer {
                 case "/api/device-find":
                     deviceCalendar(r, out);
                     return;
+                case "/api/upload":
+                    upload(r, out);
+                    return;
+                case "/api/uploads":
+                    json(out, 200, Uploads.history(ctx), null);
+                    return;
                 case "/api/logout":
                     json(out, 200, "{\"ok\":true}", "upr_session=; Path=/; Max-Age=0");
                     return;
@@ -409,6 +420,24 @@ public final class WebServer {
         }
     }
 
+    /** Файл с компьютера: тело пишется потоком прямо в файл (см. Uploads), ответ { ok, name, size, sha256, kind, location, apk }. */
+    private void upload(Req r, OutputStream out) throws Exception {
+        if (!r.method.equals("POST") || !"1".equals(r.headers.get("x-upr"))) { json(out, 400, "{\"error\":\"method\"}", null); return; }
+        if (r.length <= 0) { json(out, 411, "{\"error\":\"Нет размера файла (Content-Length)\"}", null); return; }
+        if (r.length > Uploads.MAX_UPLOAD) { json(out, 413, "{\"error\":\"Файл больше 500 МБ\"}", null); return; }
+        try {
+            Uploads.Result res = Uploads.receive(ctx, r.query.get("name"), r.stream, r.length, (done) -> lastActivity = System.currentTimeMillis());
+            lastActivity = System.currentTimeMillis();
+            JSONObject o = new JSONObject().put("ok", true).put("name", res.name).put("size", res.size).put("sha256", res.sha256)
+                    .put("kind", res.kind).put("location", res.location);
+            if (res.apk != null) o.put("apk", res.apk).put("status", Uploads.apkStatus(res.apk));
+            json(out, 200, o.toString(), null);
+        } catch (Exception e) {
+            // связь оборвалась или нет места: временный файл уже удалён; ответ может не дойти — это нормально
+            try { json(out, 500, new JSONObject().put("ok", false).put("error", String.valueOf(e.getMessage())).toString(), null); } catch (Exception ignored) { }
+        }
+    }
+
     private static long parseLong(String s, long def) {
         try {
             return s == null || s.isEmpty() ? def : (long) Double.parseDouble(s);
@@ -440,7 +469,8 @@ public final class WebServer {
 
     private void send(OutputStream out, int code, String type, byte[] body, String cookie) throws Exception {
         String status = code == 200 ? "OK" : code == 401 ? "Unauthorized" : code == 403 ? "Forbidden"
-                : code == 404 ? "Not Found" : code == 429 ? "Too Many Requests" : code == 400 ? "Bad Request" : "Error";
+                : code == 404 ? "Not Found" : code == 429 ? "Too Many Requests" : code == 400 ? "Bad Request"
+                : code == 411 ? "Length Required" : code == 413 ? "Payload Too Large" : "Error";
         StringBuilder h = new StringBuilder();
         h.append("HTTP/1.1 ").append(code).append(' ').append(status).append("\r\n");
         h.append("Content-Type: ").append(type).append("\r\n");

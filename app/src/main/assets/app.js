@@ -50,6 +50,7 @@ function initials(s) { const p = String(s || '?').trim().split(/\s+/); return ((
 
 /* Иконки (inline SVG) */
 const I = {
+  map: '<rect x="9" y="2.5" width="6" height="5" rx="1.2"/><rect x="2.5" y="16.5" width="6" height="5" rx="1.2"/><rect x="15.5" y="16.5" width="6" height="5" rx="1.2"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>',
   home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   tasks: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.5 1.5L7.5 5M3.5 12 5 13.5 7.5 11M3.5 18 5 19.5 7.5 17"/>',
   crm: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.6c2 .7 3.2 2.6 3.5 5.4"/>',
@@ -396,6 +397,7 @@ const TABS = [
   { id: 'home', name: 'Мои дела', icon: 'home' },
   { id: 'calendar', name: 'Календарь', icon: 'cal' },
   { id: 'projects', name: 'Проекты', icon: 'folder' },
+  { id: 'map', name: 'Карта', icon: 'map' },
   { id: 'tasks', name: 'Задачи', icon: 'tasks' },
   { id: 'crm', name: 'CRM', icon: 'crm' },
   { id: 'notes', name: 'Заметки', icon: 'notes' },
@@ -1803,7 +1805,7 @@ SHEETS.project = function ({ id }) {
   const cs = st.contacts.slice().sort((a, b) => (contactOverdue(b) - contactOverdue(a)) || a.name.localeCompare(b.name, 'ru'));
   const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
   return sheetHead(`<i class="dot" style="background:${esc(p.color || colorFor(p.name))};width:12px;height:12px"></i> ${esc(p.name)}`, `<button class="icon-btn" data-a="edit" data-type="project" data-id="${p.id}" aria-label="Изменить">${icon('edit')}</button>`)
-    + `${p.category ? `<div style="margin:-4px 0 10px"><span class="chip violet">${icon('folder')}${esc(p.category)}</span></div>` : ''}${p.desc ? `<div class="desc" style="margin-bottom:12px">${esc(p.desc)}</div>` : ''}
+    + `${p.category || p.ownerId ? `<div style="margin:-4px 0 10px">${p.ownerId ? `<span class="chip blue" title="Ответственный">${icon('crm')}${esc(p.ownerId)}</span> ` : ''}${p.category ? `<span class="chip violet">${icon('folder')}${esc(p.category)}</span>` : ''}</div>` : ''}${p.desc ? `<div class="desc" style="margin-bottom:12px">${esc(p.desc)}</div>` : ''}
     <div class="pc-cats" style="margin-bottom:10px">
       <div class="pc-cat todo ${st.todoTasks.length + st.todoCrm.length ? 'hot' : ''}"><span class="l">К выполнению</span><span class="v"><b>${st.todoTasks.length}</b> задач · <b>${st.todoCrm.length}</b> crm</span></div>
       <div class="pc-cat od ${st.overdueTasks.length + st.overdueCrm.length ? 'hot' : ''}"><span class="l">Просрочено</span><span class="v"><b>${st.overdueTasks.length}</b> задач · <b>${st.overdueCrm.length}</b> crm</span></div>
@@ -1821,6 +1823,7 @@ SHEETS.projectForm = function ({ id, preset }) {
   if (!p) return sheetHead('Проект удалён');
   return sheetHead(id ? 'Изменить проект' : 'Новый проект') + `<form class="form" data-form="project" data-id="${id || ''}">
     <div class="field"><label>Название</label><input name="name" required value="${esc(p.name)}" placeholder="Например: Запуск сайта"></div>
+    <div class="field"><label>Ответственный</label><select name="ownerId"><option value="">— не указан —</option>${D.settings.people.map((x) => `<option ${p.ownerId === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
     <div class="field"><label>Категория (вид деятельности)</label><select name="category"><option value="">— без категории —</option>${projectCategories().map((c) => `<option ${p.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select><input name="categoryNew" placeholder="или новая категория" style="margin-top:6px"></div>
     <div class="field"><label>Цвет</label><div class="picker">${PROJECT_COLORS.map((c) => `<label class="swatch"><input type="radio" name="color" value="${c}" ${(p.color || '') === c ? 'checked' : ''}><i style="background:${c}"></i></label>`).join('')}</div></div>
     <div class="field"><label>Описание</label><textarea name="desc" placeholder="Цель, договорённости, ссылки">${esc(p.desc || '')}</textarea></div>
@@ -2117,7 +2120,7 @@ function submitForm(form) {
       const ex = projectCategories().find((c) => c.toLowerCase() === category.toLowerCase());
       if (ex) category = ex; else D.settings.projectCategories.push(category);
     }
-    const data = { name: g('name'), category, color: g('color') || PROJECT_COLORS[0], desc: g('desc') };
+    const data = { name: g('name'), category, color: g('color') || PROJECT_COLORS[0], desc: g('desc'), ownerId: D.settings.people.includes(g('ownerId')) ? g('ownerId') : null };
     if (id) data.archived = f.get('archived') === 'on';
     if (id) { Object.assign(project(id), data, { updatedAt: now }); saved = project(id); }
     else { saved = Object.assign({ id: uid('p'), archived: false, createdAt: now, updatedAt: now }, data); D.projects.push(saved); }
@@ -2296,11 +2299,12 @@ const ACTIONS = {
       if (type === 'contact') removeContact(id);
       if (type === 'event') removeEvent(id);
       if (type === 'note') D.notes = D.notes.filter((n) => n.id !== id);
-      if (type === 'project') { removeProject(id); if (ui.tfProject === id) ui.tfProject = ''; }
+      let pruned = 0;
+      if (type === 'project') { removeProject(id); if (ui.tfProject === id) ui.tfProject = ''; pruned = pruneMaps(D); }
       save();
       ui.stack = ui.stack.filter((s) => s.id !== id);
       render();
-      toast('Удалено');
+      toast('Удалено' + (pruned ? `; с карт убрано узлов: ${pruned}` : ''));
     });
   },
   'toggle-task': (el) => {
@@ -2484,7 +2488,15 @@ const ACTIONS = {
     if (!D.settings.people.includes(v)) D.settings.people.push(v);
     save(); render();
   },
-  'person-del': (el) => { const p = el.dataset.id; D.settings.people = D.settings.people.filter((x) => x !== p); save(); render(); toast('Задачи исполнителя «' + p + '» сохранены'); },
+  'person-del': (el) => {
+    const p = el.dataset.id;
+    D.settings.people = D.settings.people.filter((x) => x !== p);
+    const owned = D.projects.filter((x) => x.ownerId === p);
+    owned.forEach((x) => { x.ownerId = null; });
+    const n = pruneMaps(D);
+    save(); render();
+    toast('Задачи исполнителя «' + p + '» сохранены' + (owned.length ? `; у проектов (${owned.length}) снят ответственный` : '') + (n ? `; с карт убрано узлов: ${n}` : ''));
+  },
   'test-alarm': (el) => { if (N) { N.testAlarm(el.dataset.id === '1'); toast('Сигнал прозвучит через 5 секунд — можно заблокировать экран'); } else toast('Доступно на телефоне'); },
   perm: (el) => { if (N) N.requestPermission(el.dataset.id); },
   'diag-toggle': () => { ui.diagOpen = !ui.diagOpen; if (ui.diagOpen && !ui.diagData) loadDiag(); render(); },

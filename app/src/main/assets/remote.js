@@ -135,6 +135,9 @@
       overlay.textContent = 'Отпустите файлы: контакты, задачи (CSV/Excel), календарь (.ics) или резервную копию';
       document.body.appendChild(overlay);
     }
+    const toPhone = typeof ui !== 'undefined' && ui.tab === 'files';
+    overlay.textContent = toPhone ? 'Отпустите файлы — они будут отправлены на телефон'
+      : 'Отпустите файлы: контакты, задачи (CSV/Excel), календарь (.ics) или резервную копию. Чтобы отправить файл на телефон — откройте «Файлы на телефон»';
     overlay.style.display = v ? 'grid' : 'none';
   }
   let dragDepth = 0;
@@ -145,7 +148,10 @@
     e.preventDefault();
     dragDepth = 0;
     showOverlay(false);
-    Array.from((e.dataTransfer && e.dataTransfer.files) || []).forEach((f) => queue.push(f));
+    const files = (e.dataTransfer && e.dataTransfer.files) || [];
+    // На экране «Файлы на телефон» — передача файлов на телефон, на остальных — импорт (Битрикс24, резервная копия)
+    if (typeof ui !== 'undefined' && ui.tab === 'files' && window.__phoneUpload) { window.__phoneUpload(files); return; }
+    Array.from(files).forEach((f) => queue.push(f));
     next();
   });
 

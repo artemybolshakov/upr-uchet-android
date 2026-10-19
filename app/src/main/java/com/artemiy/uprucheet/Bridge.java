@@ -292,10 +292,52 @@ public final class Bridge {
     public String appInfo() {
         try {
             String v = a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionName;
+            JSONObject cur = Updates.current(a);
             return new JSONObject().put("version", v).put("sdk", Build.VERSION.SDK_INT)
+                    .put("versionCode", cur.optLong("versionCode")).put("build", cur.optString("build"))
                     .put("device", Build.MANUFACTURER + " " + Build.MODEL).toString();
         } catch (Exception e) {
             return "{}";
         }
+    }
+
+    // ---------- Обновления, переданные с компьютера ----------
+
+    /** Полученные APK (последние 3) со сведениями о версии и подписи. */
+    @JavascriptInterface
+    public String listUpdates() {
+        org.json.JSONArray arr = new org.json.JSONArray();
+        java.io.File[] files = Updates.dir(a).listFiles((d, n) -> n.toLowerCase().endsWith(".apk"));
+        if (files != null) {
+            java.util.Arrays.sort(files, (x, y) -> Long.compare(y.lastModified(), x.lastModified()));
+            for (java.io.File f : files) {
+                JSONObject o = Updates.info(a, f);
+                try { o.put("status", Uploads.apkStatus(o)); } catch (Exception ignored) { }
+                arr.put(o);
+            }
+        }
+        return arr.toString();
+    }
+
+    @JavascriptInterface
+    public String updateInfo(String name) {
+        java.io.File f = Updates.file(a, name);
+        if (f == null) return "{\"exists\":false,\"name\":" + JSONObject.quote(name == null ? "" : name) + "}";
+        JSONObject o = Updates.info(a, f);
+        try { o.put("status", Uploads.apkStatus(o)); } catch (Exception ignored) { }
+        return o.toString();
+    }
+
+    /** "started" | "permission" | "missing" | "error:…" (см. Updates.install). Перед установкой делается резервная копия. */
+    @JavascriptInterface
+    public String installUpdate(String name) { return Updates.install(a, name); }
+
+    @JavascriptInterface
+    public void openUnknownSources() { a.runOnUiThread(() -> Updates.openUnknownSources(a)); }
+
+    @JavascriptInterface
+    public boolean deleteUpdate(String name) {
+        java.io.File f = Updates.file(a, name);
+        return f != null && f.delete();
     }
 }
