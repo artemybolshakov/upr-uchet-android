@@ -111,8 +111,12 @@ function save(immediate) {
     } catch (e) { toast('Ошибка записи данных'); }
     syncAlarms();
   };
-  if (immediate) run(); else saveTimer = setTimeout(run, 250);
+  if (immediate) { saveTimer = null; run(); } else saveTimer = setTimeout(() => { saveTimer = null; run(); }, 250);
 }
+// Отложенное сохранение не теряется, если приложение свернули или страницу закрыли сразу после изменения
+function flushSave() { if (saveTimer) save(true); }
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
 
 function makeBackup() { return wrapBackup(D); }
 
@@ -397,7 +401,6 @@ const TABS = [
   { id: 'home', name: 'Мои дела', icon: 'home' },
   { id: 'calendar', name: 'Календарь', icon: 'cal' },
   { id: 'projects', name: 'Проекты', icon: 'folder' },
-  { id: 'map', name: 'Карта', icon: 'map' },
   { id: 'tasks', name: 'Задачи', icon: 'tasks' },
   { id: 'crm', name: 'CRM', icon: 'crm' },
   { id: 'notes', name: 'Заметки', icon: 'notes' },
@@ -445,12 +448,15 @@ function afterRender() {
     ui.tgKey = key; ui.tgY = tg.scrollTop;
     tg.addEventListener('scroll', () => { ui.tgY = tg.scrollTop; }, { passive: true });
   }
+  if (ui.tab === 'home' && typeof mapAfterRender === 'function') mapAfterRender();
   if (ui.tab === 'tasks' && D.settings.tasksView === 'links') drawLinks();
   if (ui.tab === 'tasks' && D.settings.tasksView === 'gantt') scrollGanttToToday();
 }
 
 function go(tab) {
+  if (tab === 'map' || (tab !== 'summary' && tab !== 'settings' && !SCREENS[tab])) tab = 'home'; // раздела «Карта» больше нет — карта на «Моих делах»
   ui.tab = tab;
+  if (tab === 'home' && ui.map) ui.map.fitPending = true;
   ui.homeFilter = null;
   ui.stack = [];
   $('#main').scrollTop = 0;
@@ -578,6 +584,7 @@ window.__back = function () {
 window.__native = function (type, payload) {
   if (type === 'open' && payload) {
     const [kind, id] = payload.split(':');
+    if (kind === 'tab' || kind === 'map') { go(kind === 'map' ? 'home' : id); return; }
     const map = { event: 'events', task: 'tasks', contact: 'contacts', project: 'projects' };
     if (map[kind] && byId(D[map[kind]], id)) openSheet(kind, id);
   } else if (type === 'imported') {
@@ -596,7 +603,8 @@ window.__native = function (type, payload) {
     if (ui.tab === 'calendar') loadDeviceEvents(true);
     if (type === 'resume') renderNav();
   } else if (type === 'screen') {
-    // Смена режима экрана Mate XT: перерисовываем, состояние в памяти сохраняется.
+    // Смена режима экрана Mate XT: перерисовываем, состояние в памяти сохраняется; карту вписываем заново.
+    if (ui.map) ui.map.fitPending = true;
     render();
   }
 };
@@ -737,22 +745,25 @@ SCREENS.home = function () {
   const d = new Date();
   const stat = (key, cls, ic, n, label) => `<button class="stat ${cls}" data-a="home-filter" data-id="${key}" style="${ui.homeFilter === key ? 'outline:2px solid var(--accent)' : ''}">
       <span class="ic">${icon(ic)}</span><span class="n">${n}</span><span class="l">${label}</span></button>`;
-  let body = '';
+  // Список счётчика — панель между плашкой и картой (карта остаётся на экране, нужные узлы подсвечиваются)
+  let panel = '', sel = null;
   if (ui.homeFilter) {
     const titles = { overdueCrm: 'Просроченные карточки CRM', overdueTasks: 'Просроченные задачи', todayTasks: 'Задачи на сегодня', todayCrmEvents: 'События CRM на сегодня' };
-    let content = '';
-    if (ui.homeFilter === 'overdueCrm') content = listOf(CrmSort.sort(D.contacts.filter(contactOverdue), 'due'), contactItem, 'Нет просроченных карточек');
-    if (ui.homeFilter === 'overdueTasks') content = listOf(D.tasks.filter((x) => taskState(x) === 'overdue').sort(sortByDue), taskItem, 'Нет просроченных задач');
-    if (ui.homeFilter === 'todayTasks') content = listOf(D.tasks.filter((x) => !isDone(x) && x.due === t).sort(sortByDue), taskItem, 'На сегодня задач нет');
+    sel = homeSelection(ui.homeFilter);
+    let content = '', n = 0;
+    if (ui.homeFilter === 'overdueCrm') { const cs = CrmSort.sort(D.contacts.filter(contactOverdue), 'due'); n = cs.length; content = listOf(cs, contactItem, 'Нет просроченных карточек'); }
+    if (ui.homeFilter === 'overdueTasks' || ui.homeFilter === 'todayTasks') { n = sel.list.length; content = listOf(sel.list, taskItem, ui.homeFilter === 'todayTasks' ? 'На сегодня задач нет' : 'Нет просроченных задач'); }
     if (ui.homeFilter === 'todayCrmEvents') {
       const evs = eventsOn(t).filter((e) => e.crmIds.length).sort((a, b) => a.start < b.start ? -1 : 1);
       const cs = D.contacts.filter((x) => x.nextContact === t);
+      n = evs.length + cs.length;
       content = (evs.length || !cs.length ? listOf(evs, (e) => eventItem(e), 'Сегодня встреч с контактами нет') : '') + (cs.length ? `<div class="section-title">Связаться сегодня</div>` + listOf(cs, contactItem, '') : '');
     }
-    body = `<div class="section-title">${titles[ui.homeFilter]}<button class="btn sm right" data-a="home-filter" data-id="">Скрыть</button></div>${content}`;
-  } else {
-    body = projectDashboard();
+    panel = `<div class="home-panel"><div class="home-panel-h"><b>${titles[ui.homeFilter]}</b><span class="muted small">${n}</span>${sel.tasks.length || sel.projects.length ? '<span class="sub small only-wide-inline">· на карте подсвечено связанное</span>' : ''}<button class="btn sm right" data-a="home-filter" data-id="">Скрыть</button></div>
+      <div class="home-panel-list">${content}</div></div>`;
   }
+  // mapui.js подключается после app.js: при самой первой отрисовке карты ещё нет — mapui.js перерисует экран сам
+  const body = panel + (typeof renderRespMap === 'function' ? renderRespMap(sel) : '');
   return `<div class="head">
       <div class="grow"><h1>Мои дела</h1><div class="sub">${WD[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}</div></div>
       <button class="btn" data-a="quick-summary" title="Скопировать сводку">${icon('copy')}<span class="only-wide-inline">Сводка</span></button>
@@ -768,6 +779,26 @@ SCREENS.home = function () {
     ${body}
     <button class="fab" data-a="new-menu" aria-label="Создать">${icon('plus')}</button>`;
 };
+
+/* Задачи и проекты, к которым относится список счётчика (для подсветки на карте) */
+function homeSelection(key) {
+  const t = today();
+  let tasks = [], list = [];
+  const ofContacts = (cs) => { const ids = new Set(cs.map((c) => c.id)); return D.tasks.filter((x) => x.crmIds.some((id) => ids.has(id))); };
+  if (key === 'overdueTasks') tasks = list = D.tasks.filter((x) => taskState(x) === 'overdue').sort(sortByDue);
+  if (key === 'todayTasks') tasks = list = D.tasks.filter((x) => !isDone(x) && x.due === t).sort(sortByDue);
+  if (key === 'overdueCrm') tasks = ofContacts(D.contacts.filter(contactOverdue));
+  if (key === 'todayCrmEvents') {
+    const evs = eventsOn(t).filter((e) => e.crmIds.length);
+    const cids = new Set(evs.flatMap((e) => e.crmIds));
+    D.contacts.forEach((c) => { if (c.nextContact === t) cids.add(c.id); });
+    const seen = new Set();
+    tasks = ofContacts(D.contacts.filter((c) => cids.has(c.id))).concat(evs.flatMap((e) => tasksOfEvent(e.id))).filter((x) => !seen.has(x.id) && seen.add(x.id));
+  }
+  // для CRM в приоритете невыполненные задачи; если их нет — все связанные
+  if (key === 'overdueCrm' || key === 'todayCrmEvents') { const open = tasks.filter((x) => !isDone(x)); if (open.length) tasks = open; }
+  return { tasks, list, projects: Array.from(new Set(tasks.map((x) => x.projectId).filter(Boolean))) };
+}
 
 /* Дашборд проектов: крупные блоки с двумя категориями внимания */
 function projectCard(p, st, opts) {

@@ -1,4 +1,4 @@
-/* 管理会计 — экран «Карта ответственных».
+/* 管理会计 — «Карта ответственных» на экране «Мои дела».
  * Данные карты (состав и структура) — D.maps (schema.js), счётчики — RespMap (respmap.js), здесь только интерфейс.
  * Загружается после app.js и использует его общие функции (render, modal, toast, openSheet, ACTIONS, SCREENS, SHEETS…).
  */
@@ -45,47 +45,132 @@ function counterChips(s, n) {
   </div>${n.type === 'person' ? `<div class="rm-sub">из них в его проектах: ${s.inOwn || 0}</div>` : n.type === 'project' && project(n.ref) ? `<div class="rm-sub ellipsis">отв.: ${esc(project(n.ref).ownerId || 'не указан')}${project(n.ref).archived ? ' · архив' : ''}</div>` : ''}`;
 }
 
-/* ---------- Экран ---------- */
-SCREENS.map = function () {
-  const m = curMap();
-  if (!m) {
-    return `<div class="head"><h1>Карта ответственных</h1></div>
-      <div class="card rm-empty">
-        <div style="font-size:15px"><b>Кто за что отвечает и где проблемы — на одном экране.</b></div>
-        <div class="sub mt">На карте — направления, руководители и их проекты. У каждого узла счётчики «в работе» и «просрочено»: они считаются из задач приложения, ничего вести отдельно не нужно.</div>
-        <div class="row mt" style="gap:8px;flex-wrap:wrap">
-          <button class="btn primary" data-a="map-create" data-id="auto">${icon('map')}Собрать автоматически</button>
-          <button class="btn" data-a="map-create">${icon('plus')}Пустая карта</button>
-        </div>
-        <div class="sub mt">«Собрать автоматически» берёт людей, у которых есть проекты с ответственным (поле «Ответственный» в карточке проекта), и вешает под ними их проекты.</div>
-      </div>`;
+/* ---------- Карта на экране «Мои дела» ----------
+ * Отдельного раздела «Карта» нет: карту рисует renderRespMap(), её вызывает SCREENS.home.
+ * Режимы панели: «Дерево» / «Карточки» (m.view) и «Проекты» (settings.homeView = 'projects', прежняя сетка проектов).
+ */
+const homeView = () => (D.settings.homeView === 'projects' ? 'projects' : 'map');
+const mapOnScreen = (el) => !!(el && el.closest && el.closest('.rm-host'));
+
+function homeModeSeg(mode) {
+  const b = (k, n) => `<button class="${mode === k ? 'on' : ''}" data-a="home-view" data-id="${k}">${n}</button>`;
+  return `<div class="seg rm-modes">${b('tree', 'Дерево')}${b('cards', 'Карточки')}${b('projects', 'Проекты')}</div>`;
+}
+
+function mapInvite() {
+  return `<div class="card rm-empty">
+      <div style="font-size:15px"><b>Кто за что отвечает и где проблемы — на одном экране.</b></div>
+      <div class="sub mt">На карте — направления, руководители и их проекты. У каждого узла счётчики «в работе» и «просрочено»: они считаются из задач приложения, ничего вести отдельно не нужно.</div>
+      <div class="row mt" style="gap:8px;flex-wrap:wrap">
+        <button class="btn primary" data-a="map-create" data-id="auto">${icon('map')}Собрать автоматически</button>
+        <button class="btn" data-a="map-create">${icon('plus')}Пустая карта</button>
+      </div>
+      <div class="sub mt">«Собрать автоматически» берёт людей, у которых есть проекты с ответственным (поле «Ответственный» в карточке проекта), и вешает под ними их проекты.</div>
+      <div class="mt"><a href="#" class="link" data-a="home-view" data-id="projects">Показать проекты</a></div>
+    </div>`;
+}
+
+/* Узлы карты, к которым относятся задачи и проекты из списка счётчика: { nodes:Set, projects:Set } */
+function mapHighlight(m, sel) {
+  if (!sel) return null;
+  const pids = new Set(sel.projects || []);
+  const people = new Set();
+  (sel.tasks || []).forEach((t) => {
+    if (t.projectId) pids.add(t.projectId);
+    if (t.assignee) people.add(t.assignee);
+  });
+  pids.forEach((pid) => { const p = project(pid); if (p && p.ownerId) people.add(p.ownerId); });
+  const nodes = new Set();
+  if (m) {
+    m.nodes.forEach((n) => {
+      if ((n.type === 'project' && pids.has(n.ref)) || (n.type === 'person' && people.has(n.ref))) nodes.add(n.id);
+    });
+    // направления, внутри которых есть подсвеченные узлы
+    m.nodes.filter((n) => n.type === 'group').forEach((g) => {
+      if (m.nodes.some((n) => nodes.has(n.id) && RespMap.isDescendant(m, n.id, g.id))) nodes.add(g.id);
+    });
   }
+  return { nodes, projects: pids };
+}
+const hlCls = (hl, id) => (hl ? (hl.nodes.has(id) ? ' rm-hl' : ' rm-dim') : '');
+
+/* Карта ответственных (или сетка проектов) под плашкой счётчиков. sel — элементы открытого списка счётчика. */
+function renderRespMap(sel) {
+  const hv = homeView();
+  const m = curMap();
+  if (hv === 'projects') {
+    const hl = mapHighlight(null, sel);
+    return `<div class="rm-host rm-host-projects ${hl ? 'has-hl' : ''}" data-hl="${hl ? esc(JSON.stringify(Array.from(hl.projects))) : ''}">
+      <div class="rm-bar">${homeModeSeg('projects')}</div>${projectDashboard()}</div>`;
+  }
+  if (!m) return `<div class="rm-host">${mapInvite()}</div>`;
   const mode = mapViewMode(m);
   const stats = RespMap.mapStats(D, m, mapToday());
   const hasOwners = D.projects.some((p) => p.ownerId);
-  const top = `<div class="head"><h1 class="grow ellipsis">${D.maps.length > 1 ? `<select class="rm-pick" data-change="mapPick">${D.maps.map((x) => `<option value="${x.id}" ${x.id === m.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : esc(m.name)}</h1>
-      <button class="icon-btn" data-a="map-menu" aria-label="Карта: действия">⋯</button></div>
-    <div class="rm-bar">
-      <div class="seg"><button class="${mode === 'tree' ? 'on' : ''}" data-a="map-view" data-id="tree">Дерево</button><button class="${mode === 'cards' ? 'on' : ''}" data-a="map-view" data-id="cards">Карточки</button></div>
+  const hl = mapHighlight(m, sel);
+  const pick = D.maps.length > 1
+    ? `<select class="rm-pick-sel" data-change="mapPick" aria-label="Карта">${D.maps.map((x) => `<option value="${x.id}" ${x.id === m.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : '';
+  const bar = `<div class="rm-bar">
+      ${homeModeSeg(mode)}
+      ${pick}
       <button class="btn sm" data-a="map-add">${icon('plus')}Добавить</button>
       <button class="btn sm" data-a="map-auto" ${hasOwners ? '' : 'title="Сначала укажите ответственных в карточках проектов"'}>Собрать автоматически</button>
       ${mode === 'tree' && m.nodes.length ? `<span class="rm-zoom"><button class="btn sm" data-a="map-zoom" data-id="-1" aria-label="Мельче">−</button><button class="btn sm" data-a="map-zoom" data-id="0">Вписать</button><button class="btn sm" data-a="map-zoom" data-id="1" aria-label="Крупнее">+</button></span>` : ''}
+      <button class="icon-btn rm-more" data-a="map-menu" aria-label="Карта: действия" title="${esc(m.name)}">⋯</button>
     </div>`;
   if (!m.nodes.length) {
-    return top + `<div class="card rm-empty"><div class="sub">Карта пустая. Добавьте руководителя, направление или проект — или соберите карту автоматически из ответственных за проекты.</div>
-      ${hasOwners ? '' : '<div class="sub mt">Ответственного проекта можно указать в его карточке → «Изменить» → «Ответственный».</div>'}</div>`;
+    return `<div class="rm-host">${bar}<div class="card rm-empty"><div class="sub">Карта «${esc(m.name)}» пустая. Добавьте руководителя, направление или проект — или соберите карту автоматически из ответственных за проекты.</div>
+      ${hasOwners ? '' : '<div class="sub mt">Ответственного проекта можно указать в его карточке → «Изменить» → «Ответственный».</div>'}</div></div>`;
   }
-  const legend = `<div class="rm-legend sub"><span><i class="rm-dot red"></i>есть просрочка</span><span><i class="rm-dot yellow"></i>срок сегодня или завтра</span><span><i class="rm-dot"></i>всё спокойно</span><span>Долгое нажатие на узел — переименовать, ответственный, переместить, убрать</span></div>`;
-  return top + (mode === 'tree' ? mapTree(m, stats) : mapCards(m, stats)) + legend;
-};
+  const legend = `<div class="rm-legend sub"><span><i class="rm-dot red"></i>есть просрочка</span><span><i class="rm-dot yellow"></i>срок сегодня или завтра</span><span><i class="rm-dot"></i>всё спокойно</span><span class="rm-hint">долгое нажатие на узел — меню</span></div>`;
+  return `<div class="rm-host rm-mode-${mode} ${hl ? 'has-hl' : ''}">${bar}${mode === 'tree' ? mapTree(m, stats, hl) : mapCards(m, stats, hl)}${legend}</div>`;
+}
+
+/* После отрисовки «Моих дел»: карта занимает оставшуюся высоту окна; при открытии экрана — «Вписать». */
+function mapAfterRender() {
+  const host = $('.rm-host');
+  if (!host) return;
+  if (host.classList.contains('rm-host-projects')) {
+    let ids = null;
+    try { ids = host.dataset.hl ? new Set(JSON.parse(host.dataset.hl)) : null; } catch (e) { ids = null; }
+    $$('.pcard', host).forEach((c) => {
+      const pid = c.dataset.type === 'project' ? c.dataset.id : null;
+      c.classList.toggle('rm-hl', !!(ids && pid && ids.has(pid)));
+      c.classList.toggle('rm-dim', !!(ids && !(pid && ids.has(pid))));
+    });
+    return;
+  }
+  mapSizeViewport();
+  const m = curMap(), vp = $('#rm-viewport');
+  if (m && vp && (ui.map.fitPending || !ui.map.view[m.id] || ui.map.view[m.id].est)) {
+    ui.map.view[m.id] = mapFit(Number(vp.dataset.w), Number(vp.dataset.h));
+    ui.map.fitPending = false;
+    mapApplyView();
+  }
+}
+function mapSizeViewport() {
+  const vp = $('#rm-viewport'), main = $('#main');
+  if (!vp || !main) return;
+  const legend = $('.rm-legend');
+  const mr = main.getBoundingClientRect();
+  const top = vp.getBoundingClientRect().top - mr.top + main.scrollTop;
+  const padB = parseFloat(getComputedStyle(main).paddingBottom) || 0;
+  const h = main.clientHeight - top - (legend ? legend.offsetHeight + 10 : 0) - padB - 4;
+  vp.style.height = Math.max(260, Math.round(h)) + 'px';
+}
+let mapResizeT = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(mapResizeT);
+  mapResizeT = setTimeout(() => { if ($('#rm-viewport')) { mapSizeViewport(); } }, 120);
+});
 
 /* ---------- Карточки (узкий экран) ---------- */
-function mapCards(m, stats) {
+function mapCards(m, stats, hl) {
   const roots = RespMap.sortByTrouble(RespMap.childrenOf(m, null), stats, mapNodeName);
   const row = (n, depth) => {
     const s = stats[n.id];
     const kids = RespMap.sortByTrouble(RespMap.childrenOf(m, n.id), stats, mapNodeName);
-    return `<div class="rm-row lvl-${s.level}" data-node="${n.id}" data-a="map-open" data-id="${n.id}" style="padding-left:${10 + depth * 16}px">
+    return `<div class="rm-row lvl-${s.level}${hlCls(hl, n.id)}" data-node="${n.id}" data-a="map-open" data-id="${n.id}" style="padding-left:${10 + depth * 16}px">
         ${icon(mapNodeIcon(n))}<span class="grow ellipsis">${esc(mapNodeName(n))}${n.type === 'project' && project(n.ref) && project(n.ref).archived ? ' <span class="chip">архив</span>' : ''}</span>
         <span class="rm-mini ${s.soon ? 'yellow' : ''}">${s.open}</span><span class="rm-mini ${s.overdue ? 'red' : ''}">${s.overdue}</span>
       </div>` + kids.map((k) => row(k, depth + 1)).join('');
@@ -94,7 +179,7 @@ function mapCards(m, stats) {
     const s = stats[r.id];
     const kids = RespMap.sortByTrouble(RespMap.childrenOf(m, r.id), stats, mapNodeName);
     return `<div class="rm-card lvl-${s.level}">
-      <div class="rm-card-h" data-node="${r.id}" data-a="map-open" data-id="${r.id}">
+      <div class="rm-card-h${hlCls(hl, r.id)}" data-node="${r.id}" data-a="map-open" data-id="${r.id}">
         <div class="row" style="gap:8px">${icon(mapNodeIcon(r))}<b class="grow ellipsis">${esc(mapNodeName(r))}</b><span class="rm-type">${{ person: 'руководитель', group: 'направление', project: 'проект' }[r.type]}</span></div>
         ${counterChips(s, r)}
       </div>
@@ -119,7 +204,7 @@ function mapLayout(m) {
   const all = Object.values(pos);
   return { pos, w: Math.max(...all.map((p) => p.x)) + MAP_W, h: Math.max(...all.map((p) => p.y)) + MAP_H };
 }
-function mapTree(m, stats) {
+function mapTree(m, stats, hl) {
   const L = mapLayout(m);
   const edges = [];
   const boxes = [];
@@ -131,11 +216,11 @@ function mapTree(m, stats) {
     const pp = L.pos[n.parentId || '__root'];
     if (pp) {
       const x1 = pp.x + MAP_W, y1 = pp.y + MAP_H / 2, x2 = p.x, y2 = p.y + MAP_H / 2, mx = (x1 + x2) / 2;
-      edges.push(`<path class="lvl-${stats[n.id].level}" d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}"/>`);
+      edges.push(`<path class="lvl-${stats[n.id].level}${hlCls(hl, n.id)}" d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}"/>`);
     }
     const s = stats[n.id];
     const kids = RespMap.childrenOf(m, n.id).length;
-    boxes.push(`<div class="rm-node lvl-${s.level} t-${n.type}" data-node="${n.id}" data-a="map-open" data-id="${n.id}" style="left:${p.x}px;top:${p.y}px;width:${MAP_W}px;height:${MAP_H}px">
+    boxes.push(`<div class="rm-node lvl-${s.level} t-${n.type}${hlCls(hl, n.id)}" data-node="${n.id}" data-a="map-open" data-id="${n.id}" style="left:${p.x}px;top:${p.y}px;width:${MAP_W}px;height:${MAP_H}px">
       <div class="rm-t">${icon(mapNodeIcon(n))}<span class="ellipsis">${esc(mapNodeName(n))}</span></div>
       ${counterChips(s, n)}
       ${kids ? `<button class="rm-fold" data-a="map-fold" data-id="${n.id}" aria-label="${n.collapsed ? 'Развернуть' : 'Свернуть'}">${n.collapsed ? '+' + kids : '−'}</button>` : ''}
@@ -148,14 +233,16 @@ function mapTree(m, stats) {
     </div></div>`;
 }
 function mapViewState(m, L) {
-  if (!ui.map.view[m.id]) ui.map.view[m.id] = mapFit(L.w, L.h);
+  if (!ui.map.view[m.id]) ui.map.view[m.id] = Object.assign(mapFit(L.w, L.h), { est: true }); // уточняется в mapAfterRender
   return ui.map.view[m.id];
 }
 function mapFit(w, h) {
-  const vw = Math.max(320, (($('#main') || {}).clientWidth || window.innerWidth) - 40);
-  const vh = Math.max(300, window.innerHeight - 260);
-  const s = Math.max(0.35, Math.min(1, vw / (w + 40), vh / (h + 40)));
-  return { s, tx: 20, ty: 16 };
+  const vp = $('#rm-viewport');
+  const vw = vp && vp.clientWidth ? vp.clientWidth : Math.max(320, (($('#main') || {}).clientWidth || window.innerWidth) - 40);
+  const vh = vp && vp.clientHeight ? vp.clientHeight : Math.max(300, window.innerHeight - 320);
+  const s = Math.max(0.3, Math.min(1, (vw - 40) / w, (vh - 32) / h));
+  // по центру, если карта меньше окна
+  return { s, tx: Math.max(20, Math.round((vw - w * s) / 2)), ty: Math.max(16, Math.round((vh - h * s) / 2)) };
 }
 function mapApplyView() {
   const m = curMap(), st = $('#rm-stage');
@@ -179,7 +266,7 @@ function mapZoomAt(f, cx, cy) {
 const mapPointers = new Map();
 document.addEventListener('pointerdown', (ev) => {
   const nodeEl = ev.target.closest && ev.target.closest('[data-node]');
-  if (nodeEl && ui.tab === 'map' && !ev.target.closest('.rm-fold')) {
+  if (nodeEl && mapOnScreen(nodeEl) && !ev.target.closest('.rm-fold')) {
     const id = nodeEl.dataset.node;
     clearTimeout(ui.map.pressTimer);
     ui.map.press = { id, x: ev.clientX, y: ev.clientY, fired: false };
@@ -238,7 +325,7 @@ document.addEventListener('pointerup', mapPointerEnd);
 document.addEventListener('pointercancel', mapPointerEnd);
 // После перетаскивания или долгого нажатия обычное нажатие не срабатывает
 document.addEventListener('click', (ev) => {
-  if (ui.tab !== 'map') return;
+  if (!$('.rm-host')) return;
   const pressFired = ui.map.press && ui.map.press.fired;
   if ((ui.map.dragMoved || pressFired) && ev.target.closest && ev.target.closest('#rm-viewport, .rm-cards')) {
     ev.stopPropagation(); ev.preventDefault();
@@ -248,7 +335,7 @@ document.addEventListener('click', (ev) => {
 }, true);
 document.addEventListener('contextmenu', (ev) => {
   const nodeEl = ev.target.closest && ev.target.closest('[data-node]');
-  if (!nodeEl || ui.tab !== 'map') return;
+  if (!nodeEl || !mapOnScreen(nodeEl)) return;
   ev.preventDefault();
   clearTimeout(ui.map.pressTimer);
   if (ui.map.press && ui.map.press.fired) return; // меню уже открыто долгим нажатием
@@ -325,6 +412,8 @@ Object.assign(ACTIONS, {
     const m = { id: uid('m'), name: D.maps.length ? 'Карта ' + (D.maps.length + 1) : 'Руководители', nodes: [], createdAt: now, updatedAt: now };
     D.maps.push(m);
     D.settings.mapId = m.id;
+    D.settings.homeView = 'map';
+    ui.map.fitPending = true;
     if (el.dataset.id === 'auto') {
       const n = RespMap.autoBuild(D, m);
       toast(n ? `Добавлено узлов: ${n}` : 'Нет проектов с ответственными — укажите их в карточках проектов');
@@ -332,6 +421,19 @@ Object.assign(ACTIONS, {
     mapTouch(m); render();
   },
   'map-view': (el) => { const m = curMap(); m.view = el.dataset.id; mapTouch(m); render(); },
+  // «Дерево / Карточки / Проекты» на «Моих делах»: вид карты хранится в карте (m.view), «Проекты» — в settings.homeView
+  'home-view': (el, ev) => {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    const k = el.dataset.id;
+    if (k === 'projects') D.settings.homeView = 'projects';
+    else {
+      D.settings.homeView = 'map';
+      const m = curMap();
+      if (m && m.view !== k) { m.view = k; m.updatedAt = new Date().toISOString(); }
+      ui.map.fitPending = true;
+    }
+    save(); render();
+  },
   'map-zoom': (el) => {
     const m = curMap(), vp = $('#rm-viewport');
     if (!m || !vp) return;
@@ -507,5 +609,10 @@ document.addEventListener('change', (ev) => {
   if (!ev.target.matches || !ev.target.matches('[data-change="mapPick"]')) return;
   ev.stopImmediatePropagation();
   D.settings.mapId = ev.target.value;
+  ui.map.fitPending = true;
   save(); render();
 }, true);
+
+// Первая отрисовка «Моих дел» прошла до загрузки этого файла — дорисовываем карту
+ui.map.fitPending = true;
+if (ui.tab === 'home' && !ui.stack.length) render();

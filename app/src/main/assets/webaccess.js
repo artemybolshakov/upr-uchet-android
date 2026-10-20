@@ -11,7 +11,7 @@
 
   // Изменения пришли с компьютера: перечитываем данные и пересобираем напоминания
   function reloadFromDisk() {
-    clearTimeout(saveTimer);
+    clearTimeout(saveTimer); saveTimer = null;
     load();
     render();
     syncAlarms();

@@ -13,7 +13,7 @@
  */
 'use strict';
 
-var APP_VERSION = '1.7.1';
+var APP_VERSION = '1.7.2';
 var SCHEMA = 4;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
 
@@ -52,6 +52,7 @@ function emptyData() {
       newEventTarget: 'app',
       mapId: null,
       crmSort: 'due', // CRM: 'due' — по сроку «Связаться», 'name' — по имени
+      homeView: 'map', // «Мои дела» под счётчиками: 'map' — карта ответственных, 'projects' — сетка проектов
     },
     tasks: [],
     contacts: [],
@@ -188,6 +189,7 @@ function migrate(raw) {
   if (!Array.isArray(d.settings.showDeviceCalendars)) d.settings.showDeviceCalendars = [];
   ['contactTypes', 'contactStatuses'].forEach(function (k) { if (!Array.isArray(d.settings[k])) d.settings[k] = def.settings[k].slice(); });
   if (d.settings.crmSort !== 'name') d.settings.crmSort = 'due';
+  if (d.settings.homeView !== 'projects') d.settings.homeView = 'map';
   ['tasks', 'contacts', 'events', 'notes', 'projects'].forEach(function (k) {
     if (!Array.isArray(d[k])) d[k] = [];
     d[k] = d[k].filter(function (x) { return x && typeof x === 'object'; });

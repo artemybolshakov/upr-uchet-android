@@ -638,3 +638,39 @@ select.tf.on { border-color: var(--accent); background: var(--accent-soft); colo
 .pf-st { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
 .pf-st.wait { background: var(--warn-soft); color: var(--warn); } .pf-st.bad { background: var(--danger-soft); color: var(--danger); } .pf-st.ok { background: var(--accent-soft); color: var(--accent); }
 .upd-warn { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--danger-soft); color: var(--danger); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+
+/* ---------- «Мои дела»: счётчики + карта ответственных ---------- */
+.home-panel { margin-top: 12px; background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.home-panel-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.home-panel-h .right { margin-left: auto; }
+.home-panel-list { max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 8px; }
+.home-panel-list .list { box-shadow: none; }
+.home-panel-list .section-title { margin: 12px 4px 6px; }
+.rm-host { margin-top: 14px; }
+.rm-host .rm-bar { margin-bottom: 10px; }
+.rm-modes button { white-space: nowrap; }
+.rm-pick-sel { min-height: 34px; max-width: 220px; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 10px; padding: 4px 8px; font: inherit; font-size: 14px; }
+.rm-more { margin-left: auto; }
+.rm-zoom + .rm-more { margin-left: 0; }
+.rm-host .rm-legend { flex-wrap: nowrap; white-space: nowrap; overflow-x: auto; scrollbar-width: none; margin-top: 8px; font-size: 12.5px; }
+.rm-host .rm-legend::-webkit-scrollbar { display: none; }
+.rm-host .rm-hint { color: var(--muted); opacity: .8; }
+.rm-host .rm-viewport { height: calc(100vh - 360px); }
+.link { color: var(--accent); font-weight: 600; text-decoration: none; }
+/* подсветка по счётчику: связанные узлы ярче, остальные приглушены */
+.rm-host.has-hl .rm-dim { opacity: .28; filter: saturate(.4); transition: opacity .2s; }
+.rm-host.has-hl .rm-node.rm-hl { box-shadow: 0 0 0 3px var(--accent), 0 4px 14px rgba(0,0,0,.12); }
+.rm-host.has-hl .rm-card-h.rm-hl, .rm-host.has-hl .rm-row.rm-hl { background: var(--accent-soft); }
+.rm-host.has-hl .pcard.rm-hl { box-shadow: 0 0 0 3px var(--accent), var(--shadow); }
+.rm-host.has-hl .rm-edges path.rm-dim { opacity: .15; }
+/* узкий экран: компактные счётчики 2×2, иконка рядом с числом */
+@media (max-width: 759px) {
+  .stats { gap: 8px; }
+  .stat { min-height: 0; padding: 10px 12px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; align-items: center; }
+  .stat .ic { grid-row: 1 / 3; width: 30px; height: 30px; }
+  .stat .n { font-size: 24px; }
+  .stat .l { font-size: 12px; line-height: 1.25; }
+  .rm-bar { gap: 6px; }
+}
+/* широкий экран: счётчики пониже, чтобы карте осталось больше места */
+@media (min-width: 760px) { .stat { min-height: 96px; } }
