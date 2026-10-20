@@ -269,8 +269,8 @@ function contactDueChip(c, long) {
   if (!c.nextContact) return '';
   const d = daysBetween(today(), c.nextContact);
   if (d < 0) return `<span class="chip red">${icon('phone')}${long ? 'просрочено с ' : ''}${esc(fmtShort(c.nextContact))}</span>`;
-  if (d === 0) return `<span class="chip green">${icon('phone')}сегодня</span>`;
-  if (d === 1) return `<span class="chip amber">${icon('phone')}завтра</span>`;
+  if (d === 0) return `<span class="chip green">${icon('phone')}сегодня · ${esc(fmtShort(c.nextContact))}</span>`;
+  if (d === 1) return `<span class="chip amber">${icon('phone')}завтра · ${esc(fmtShort(c.nextContact))}</span>`;
   return `<span class="chip blue">${icon('phone')}${esc(long ? fmtDate(c.nextContact, true) : fmtShort(c.nextContact))}</span>`;
 }
 function eventsOn(day) { return D.events.filter((e) => e.start && e.start.slice(0, 10) <= day && (e.end || e.start).slice(0, 10) >= day); }
@@ -741,7 +741,7 @@ SCREENS.home = function () {
   if (ui.homeFilter) {
     const titles = { overdueCrm: 'Просроченные карточки CRM', overdueTasks: 'Просроченные задачи', todayTasks: 'Задачи на сегодня', todayCrmEvents: 'События CRM на сегодня' };
     let content = '';
-    if (ui.homeFilter === 'overdueCrm') content = listOf(D.contacts.filter(contactOverdue).sort((a, b) => a.nextContact < b.nextContact ? -1 : 1), contactItem, 'Нет просроченных карточек');
+    if (ui.homeFilter === 'overdueCrm') content = listOf(CrmSort.sort(D.contacts.filter(contactOverdue), 'due'), contactItem, 'Нет просроченных карточек');
     if (ui.homeFilter === 'overdueTasks') content = listOf(D.tasks.filter((x) => taskState(x) === 'overdue').sort(sortByDue), taskItem, 'Нет просроченных задач');
     if (ui.homeFilter === 'todayTasks') content = listOf(D.tasks.filter((x) => !isDone(x) && x.due === t).sort(sortByDue), taskItem, 'На сегодня задач нет');
     if (ui.homeFilter === 'todayCrmEvents') {
@@ -1124,12 +1124,18 @@ function crmFiltered() {
   if (ui.crmFilter === 'overdue') list = list.filter(contactOverdue);
   if (ui.crmFilter === 'today') list = list.filter((c) => c.nextContact === t);
   if (ui.crmFilter === 'tasks') list = list.filter((c) => tasksOfContact(c.id).some((x) => !isDone(x)));
-  list.sort((a, b) => {
-    const oa = contactOverdue(a) ? 0 : 1, ob = contactOverdue(b) ? 0 : 1;
-    if (oa !== ob) return oa - ob;
-    return a.name.localeCompare(b.name, 'ru');
-  });
-  return list;
+  return CrmSort.sort(list, crmSortMode());
+}
+const crmSortMode = () => CrmSort.mode(D.settings.crmSort);
+const CRM_GROUP_TITLES = { overdue: 'Просрочено', today: 'Сегодня', tomorrow: 'Завтра', week: 'На этой неделе', later: 'Позже', none: 'Без срока' };
+// Список CRM: в режиме «По сроку связи» — с разделителями групп (видно, где кончаются срочные)
+function crmList(list) {
+  if (!list.length) return listOf(list, contactItem, D.contacts.length ? 'Ничего не найдено' : 'Карточек пока нет. Добавьте первый контакт.');
+  if (crmSortMode() !== 'due') return listOf(list, contactItem, '');
+  return CrmSort.groups(list, today()).map((g) => {
+    const counted = g.key === 'overdue' || g.key === 'today' || g.key === 'tomorrow';
+    return `<div class="section-title crm-gt crm-g-${g.key}">${CRM_GROUP_TITLES[g.key]}${counted ? ` (${g.items.length})` : ''}</div>${listOf(g.items, contactItem, '')}`;
+  }).join('');
 }
 SCREENS.crm = function () {
   const list = crmFiltered();
@@ -1140,8 +1146,9 @@ SCREENS.crm = function () {
     <div class="crm-sel mt" style="margin-bottom:12px">
       <select data-change="crmType"><option value="">Тип: все</option>${D.settings.contactTypes.map((x) => `<option ${ui.crmType === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <select data-change="crmStatus"><option value="">Статус: все</option>${D.settings.contactStatuses.map((x) => `<option ${ui.crmStatus === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <select data-setting="crmSort" aria-label="Сортировка"><option value="due" ${crmSortMode() === 'due' ? 'selected' : ''}>По сроку связи</option><option value="name" ${crmSortMode() === 'name' ? 'selected' : ''}>По имени</option></select>
     </div>
-    ${listOf(list, contactItem, D.contacts.length ? 'Ничего не найдено' : 'Карточек пока нет. Добавьте первый контакт.')}`;
+    ${crmList(list)}`;
 };
 
 /* ---------- Календарь ---------- */
@@ -2246,7 +2253,7 @@ const ACTIONS = {
     const scope = ($('input[name=csv-scope]:checked') || {}).value || 'all';
     const sep = ($('#csv-sep') || {}).value === ',' ? ',' : ';';
     if (D.settings.csvSep !== sep) { D.settings.csvSep = sep; save(); }
-    const list = scope === 'shown' ? crmFiltered() : D.contacts.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const list = scope === 'shown' ? crmFiltered() : CrmSort.sort(D.contacts, crmSortMode());
     modal(null);
     saveTextFile(crmCsv(list, sep), `管理会计-CRM-${today()}.csv`, 'text/csv', 'csv');
   },
@@ -2706,7 +2713,7 @@ document.addEventListener('change', (ev) => {
   else D.settings[k] = el.value;
   if (!D.settings.importantRemind.length) D.settings.importantRemind = [0];
   save();
-  if (k === 'projectsSort') { render(); return; }
+  if (k === 'projectsSort' || k === 'crmSort') { render(); return; }
   toast('Сохранено');
 });
 

@@ -13,7 +13,7 @@
  */
 'use strict';
 
-var APP_VERSION = '1.6.0';
+var APP_VERSION = '1.7.1';
 var SCHEMA = 4;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
 
@@ -51,6 +51,7 @@ function emptyData() {
       kanbanOrder: {},
       newEventTarget: 'app',
       mapId: null,
+      crmSort: 'due', // CRM: 'due' — по сроку «Связаться», 'name' — по имени
     },
     tasks: [],
     contacts: [],
@@ -186,6 +187,7 @@ function migrate(raw) {
   if (!Array.isArray(d.settings.importantRemind) || !d.settings.importantRemind.length) d.settings.importantRemind = def.settings.importantRemind;
   if (!Array.isArray(d.settings.showDeviceCalendars)) d.settings.showDeviceCalendars = [];
   ['contactTypes', 'contactStatuses'].forEach(function (k) { if (!Array.isArray(d.settings[k])) d.settings[k] = def.settings[k].slice(); });
+  if (d.settings.crmSort !== 'name') d.settings.crmSort = 'due';
   ['tasks', 'contacts', 'events', 'notes', 'projects'].forEach(function (k) {
     if (!Array.isArray(d[k])) d[k] = [];
     d[k] = d[k].filter(function (x) { return x && typeof x === 'object'; });

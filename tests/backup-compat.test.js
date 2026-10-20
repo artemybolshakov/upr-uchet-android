@@ -88,3 +88,7 @@ console.log('\nВсе резервные копии совместимы.');
 // Карта ответственных: миграция в v4 и счётчики (тот же шаг CI)
 console.log('');
 require('./respmap.test.js');
+
+// CRM: сортировка по сроку «Связаться» (тот же шаг CI)
+console.log('');
+require('./crmsort.test.js');

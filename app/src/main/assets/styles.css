@@ -381,7 +381,11 @@ pre.summary { white-space: pre-wrap; background: var(--panel-2); border-radius: 
 .msel-opt input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
 .msel-add { display: flex; gap: 6px; padding: 6px 4px 2px; border-top: 1px solid var(--line); margin-top: 4px; }
 .msel-add input { flex: 1; min-width: 0; min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-.crm-sel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.crm-sel { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+@media (max-width: 520px) { .crm-sel { grid-template-columns: 1fr 1fr; } .crm-sel select:last-child { grid-column: 1 / -1; } }
+.crm-gt { margin: 16px 0 6px; }
+.crm-gt:first-of-type { margin-top: 4px; }
+.crm-g-overdue { color: var(--danger); } .crm-g-today { color: var(--ok); } .crm-g-tomorrow { color: var(--warn); }
 .crm-sel select { width: 100%; min-height: 40px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 6px 10px; }
 .field .msel-opt { display: flex; margin: 0; font-size: 15px; color: var(--text, inherit); }
 .field .msel-opt input { min-height: 0; width: 20px; height: 20px; padding: 0; }
