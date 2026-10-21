@@ -13,9 +13,12 @@
  */
 'use strict';
 
-var APP_VERSION = '1.8.0';
-var SCHEMA = 5;
+var APP_VERSION = '1.9.0';
+var SCHEMA = 6;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
+
+// «Чек-лист дня» (checklist.js): в браузере подключается раньше schema.js, в node — через require
+var CL = typeof Checklist !== 'undefined' ? Checklist : (typeof require === 'function' ? require('./checklist.js') : null);
 
 function emptyData() {
   return {
@@ -54,6 +57,8 @@ function emptyData() {
       crmSort: 'due', // CRM: 'due' — по сроку «Связаться», 'name' — по имени
       homeView: 'map', // «Мои дела» под счётчиками: 'map' — карта ответственных, 'projects' — сетка проектов
       roadmap: { expanded: false, range: 'year' }, // «Дорожная карта»: только состояние вида (сама карта вычисляется из задач-вех)
+      checklist: CL.defaults(), // «Чек-лист дня»: [{ id, name, archived }] в нужном порядке
+      checklistShow: true,      // показывать чек-лист на «Моих делах»
     },
     tasks: [],
     contacts: [],
@@ -61,6 +66,7 @@ function emptyData() {
     notes: [],
     projects: [],
     maps: [],
+    checklistLog: {}, // { 'YYYY-MM-DD': { [itemId]: 'HH:MM' } } — отметки чек-листа по дням (хранится 400 дней)
   };
 }
 
@@ -117,6 +123,14 @@ var MIGRATIONS = {
     (d.tasks || []).forEach(function (t) { if (t && t.milestone === undefined) t.milestone = false; });
     if (d.settings && typeof d.settings === 'object' && !d.settings.roadmap) d.settings.roadmap = { expanded: false, range: 'year' };
     d.schema = 5;
+    return d;
+  },
+  // v5 → v6: «Чек-лист дня» — 8 пунктов по умолчанию и журнал отметок по дням
+  5: function (d) {
+    if (!d.settings || typeof d.settings !== 'object') d.settings = {};
+    if (!Array.isArray(d.settings.checklist)) d.settings.checklist = CL.defaults();
+    if (!d.checklistLog || typeof d.checklistLog !== 'object') d.checklistLog = {};
+    d.schema = 6;
     return d;
   },
 };
@@ -245,6 +259,7 @@ function migrate(raw) {
   d.projects.forEach(function (p) { pids[p.id] = true; });
   d.tasks.forEach(function (t) { if (t.projectId && !pids[t.projectId]) t.projectId = null; });
   pruneMaps(d);
+  CL.normalize(d);
   if (d.settings.mapId != null && !d.maps.some(function (m) { return m.id === d.settings.mapId; })) d.settings.mapId = null;
   if (d.schema > SCHEMA) d.newerSchema = d.schema; // данные из более новой версии: неизвестные поля сохраняются как есть
   else { d.schema = SCHEMA; delete d.newerSchema; }
@@ -257,6 +272,7 @@ function validateData(d) {
   if (!d || typeof d !== 'object') return ['нет данных'];
   ['tasks', 'contacts', 'events', 'notes', 'projects', 'maps'].forEach(function (k) { if (!Array.isArray(d[k])) p.push(k + ' не массив'); });
   (d.maps || []).forEach(function (m, i) { if (!m.id || !Array.isArray(m.nodes)) p.push('карта #' + i); });
+  if (!d.checklistLog || typeof d.checklistLog !== 'object' || Array.isArray(d.checklistLog)) p.push('checklistLog повреждён');
   if (!d.settings || !Array.isArray(d.settings.people) || !Array.isArray(d.settings.statuses)) p.push('settings повреждены');
   (d.tasks || []).forEach(function (t, i) { if (!t.id || !Array.isArray(t.crmIds) || !Array.isArray(t.eventIds) || !Array.isArray(t.deps)) p.push('задача #' + i); });
   (d.contacts || []).forEach(function (c, i) { if (!c.id || !Array.isArray(c.types) || !Array.isArray(c.statuses)) p.push('контакт #' + i); });

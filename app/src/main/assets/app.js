@@ -424,7 +424,9 @@ function renderNav() {
   const c = counts();
   const badge = { home: c.overdueTasks + c.overdueCrm, crm: c.overdueCrm, tasks: c.overdueTasks };
   const narrow = window.innerWidth < 600;
-  const btn = (t) => `<button data-a="tab" data-id="${t.id}" class="${ui.tab === t.id ? 'active' : ''}" title="${esc(t.name)}">${icon(t.icon)}<span>${narrow && t.short ? t.short : t.name}</span>${badge[t.id] && t.id !== 'home' ? `<b class="badge">${badge[t.id]}</b>` : ''}</button>`;
+  // «Мои дела»: общий счётчик просрочек = просроченные задачи + просроченные контакты CRM (те же числа, что у «Задач» и «CRM»)
+  const homeTip = badge.home ? `${c.overdueTasks} ${plural(c.overdueTasks, 'задача', 'задачи', 'задач')} + ${c.overdueCrm} ${plural(c.overdueCrm, 'контакт', 'контакта', 'контактов')} CRM` : '';
+  const btn = (t) => `<button data-a="tab" data-id="${t.id}" class="${ui.tab === t.id ? 'active' : ''}" title="${esc(t.id === 'home' && homeTip ? t.name + ': просрочено ' + homeTip : t.name)}"${t.id === 'home' && homeTip ? ` data-tip="Просрочено: ${esc(homeTip)}"` : ''}>${icon(t.icon)}<span>${narrow && t.short ? t.short : t.name}</span>${badge[t.id] ? `<b class="badge">${badge[t.id]}</b>` : ''}</button>`;
   // Узкий экран: в нижней навигации не больше 6 кнопок — остальные разделы в «Ещё»
   const MAX = 6;
   const main = narrow && TABS.length > MAX ? TABS.slice(0, MAX - 1) : TABS;
@@ -795,7 +797,7 @@ SCREENS.home = function () {
       <div class="home-panel-list">${content}</div></div>`;
   }
   // mapui.js подключается после app.js: при самой первой отрисовке карты ещё нет — mapui.js перерисует экран сам
-  const body = panel + (typeof renderRespMap === 'function' ? renderRespMap(sel) : '');
+  const body = panel + (typeof checklistCard === 'function' ? checklistCard() : '') + (typeof renderRespMap === 'function' ? renderRespMap(sel) : '');
   return `<div class="head">
       <div class="grow"><h1>Мои дела</h1><div class="sub">${WD[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}</div></div>
       <button class="btn" data-a="quick-summary" title="Скопировать сводку">${icon('copy')}<span class="only-wide-inline">Сводка</span></button>
@@ -1615,6 +1617,7 @@ SCREENS.settings = function () {
       <div class="row mt"><input class="search grow" id="new-pcat" placeholder="Новая категория"><button class="btn" data-a="pcat-add">${icon('plus')}Добавить</button></div>
       <div class="sub mt">Нажмите на название, чтобы переименовать. При удалении категории проекты остаются — просто без категории.</div>
     </div>
+    ${typeof checklistSettings === 'function' ? checklistSettings() : ''}
 
     <div class="section-title">Напоминания</div>
     <div class="card form">

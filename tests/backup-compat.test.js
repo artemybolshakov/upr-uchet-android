@@ -100,3 +100,7 @@ require('./taskdates.test.js');
 // Дорожная карта (тот же шаг CI)
 console.log('');
 require('./roadmap.test.js');
+
+// Чек-лист дня (тот же шаг CI)
+console.log('');
+require('./checklist.test.js');

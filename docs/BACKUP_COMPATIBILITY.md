@@ -34,6 +34,7 @@
 | v3 | 1.5 | категории проектов (`project.category`, `settings.projectCategories`) |
 | v4 | 1.6 | `project.ownerId`, `maps[]` (карта ответственных) |
 | v5 | 1.8 | `task.milestone` (веха, по умолчанию `false`), `settings.roadmap` = `{ expanded, range }` |
+| v6 | 1.9 | «Чек-лист дня»: `settings.checklist` = `[{ id, name, archived }]` (8 пунктов по умолчанию), `settings.checklistShow`, `checklistLog` = `{ 'YYYY-MM-DD': { [itemId]: 'HH:MM' } }` (400 дней; удалённый пункт = `archived: true`, история остаётся) |
 
 ## Что делает приложение при восстановлении
 
