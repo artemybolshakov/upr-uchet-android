@@ -92,3 +92,7 @@ require('./respmap.test.js');
 // CRM: сортировка по сроку «Связаться» (тот же шаг CI)
 console.log('');
 require('./crmsort.test.js');
+
+// Быстрая смена срока задачи (тот же шаг CI)
+console.log('');
+require('./taskdates.test.js');

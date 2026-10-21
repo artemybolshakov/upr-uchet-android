@@ -552,19 +552,38 @@ function sheetHead(title, extra) {
 }
 
 /* ---------- Модальное окно и уведомления ---------- */
-function modal(html) {
+// at — {x, y}: открыть небольшим окном у курсора (мышь в веб-версии / на широком экране), иначе — обычная шторка снизу
+function modal(html, at) {
   const m = $('#modal');
+  m.classList.remove('at-cursor');
   if (!html) { m.hidden = true; m.innerHTML = ''; return; }
   m.innerHTML = `<div class="modal-box">${html}</div>`;
   m.hidden = false;
+  // тост от прошлого действия не должен закрывать кнопки нового окна
+  const tt = $('#toast'); if (tt && !tt.hidden) { tt.hidden = true; ui.toastAction = null; clearTimeout(toastTimer); }
+  if (at) {
+    m.classList.add('at-cursor');
+    const box = $('.modal-box', m), w = box.offsetWidth, h = box.offsetHeight;
+    let y = at.y + 12;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, at.y - h - 12);
+    box.style.left = Math.max(8, Math.min(at.x - 24, window.innerWidth - w - 8)) + 'px';
+    box.style.top = y + 'px';
+  }
+}
+// Позиция окна у курсора — только для мыши на широком экране
+function cursorAt(ev) {
+  if (!ev || !(ev.detail > 0) || window.innerWidth < 600 || !(window.matchMedia && matchMedia('(pointer: fine)').matches)) return null;
+  return { x: ev.clientX, y: ev.clientY };
 }
 let toastTimer = null;
-function toast(msg) {
+// action — { label, fn }: кнопка в тосте (например «Отменить»), тост держится 5 секунд
+function toast(msg, action) {
   const t = $('#toast');
-  t.textContent = msg;
+  ui.toastAction = action || null;
+  t.innerHTML = esc(msg) + (action ? ` <button type="button" class="toast-btn" data-a="toast-action">${esc(action.label)}</button>` : '');
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { t.hidden = true; ui.toastAction = null; }, action ? 5000 : 2600);
 }
 function confirmBox(text, onYes, yesLabel) {
   ui.onConfirm = onYes;
@@ -620,11 +639,12 @@ window.addEventListener('resize', () => {
 /* =========================================================
  * 5. Элементы списков
  * ======================================================= */
+// Чип срока — кнопка: нажатие открывает быструю смену срока (не карточку задачи). Без срока — бледный «+ срок».
 function dueChip(t) {
-  if (!t.due) return '';
+  if (!t.due) return isDone(t) ? '' : `<button type="button" class="chip chip-add" data-a="task-due" data-id="${t.id}" data-field="due" title="Указать срок">+ срок</button>`;
   const s = taskState(t);
   const cls = s === 'overdue' ? 'red' : s === 'today' ? 'amber' : s === 'done' ? 'green' : '';
-  return `<span class="chip ${cls}">${icon('clock')}${esc(fmtDate(t.due))}${t.dueTime ? ' ' + esc(t.dueTime) : ''}</span>`;
+  return `<button type="button" class="chip chip-btn ${cls}" data-a="task-due" data-id="${t.id}" data-field="due" title="Изменить срок">${icon('clock')}${esc(fmtDate(t.due))}${t.dueTime ? ' ' + esc(t.dueTime) : ''}</button>`;
 }
 function crmChips(ids, max) {
   const arr = ids.map(contact).filter(Boolean);
@@ -779,6 +799,50 @@ SCREENS.home = function () {
     ${body}
     <button class="fab" data-a="new-menu" aria-label="Создать">${icon('plus')}</button>`;
 };
+
+/* ---------- Быстрая смена срока / начала задачи ---------- */
+function taskDateDialog(id, field, at) {
+  const t = task(id);
+  if (!t) return;
+  const isDue = field === 'due';
+  const cur = isDue ? t.due : t.start;
+  ui.taskDate = { id, field, pending: null };
+  modal(`<h3>${isDue ? 'Срок' : 'Начало'}: ${esc(t.title)}</h3>
+    <div class="td-quick">${TaskDates.QUICK.map(([k, n]) => `<button type="button" class="btn sm" data-a="task-due-quick" data-val="${k}">${n}</button>`).join('')}</div>
+    <div class="td-fields mt"><input type="date" class="search" id="td-date" value="${esc(TaskDates.defaultDate(cur, today()))}" aria-label="Дата">${isDue ? `<input type="time" class="search" id="td-time" value="${esc(t.dueTime || '')}" aria-label="Время (необязательно)" title="Время — необязательно">` : ''}</div>
+    <div id="td-warn"></div>
+    <div class="form-actions mt"><button type="button" class="btn primary" data-a="task-due-save">${icon('check')}Сохранить</button>${cur ? `<button type="button" class="btn" data-a="task-due-clear">${isDue ? 'Убрать срок' : 'Убрать начало'}</button>` : ''}<button type="button" class="btn" data-a="modal-close">Отмена</button></div>`, at);
+}
+// date — 'YYYY-MM-DD' или '' (убрать). fix — сдвинуть вторую дату, чтобы начало было не позже срока.
+function taskDateCommit(date, time, fix) {
+  const st = ui.taskDate;
+  const t = st && task(st.id);
+  if (!t) { modal(null); return; }
+  const isDue = st.field === 'due';
+  const ch = isDue ? { due: date, dueTime: date ? time : '' } : { start: date };
+  const bad = date ? TaskDates.check(isDue ? t.start : date, isDue ? date : t.due) : null;
+  if (bad && !fix) {
+    st.pending = { date, time };
+    const w = $('#td-warn');
+    if (w) {
+      w.innerHTML = isDue
+        ? `<div class="td-warn">Срок раньше начала (${esc(fmtDate(t.start, true))}).<button type="button" class="btn sm" data-a="task-due-fix">Сдвинуть начало на ${esc(TaskDates.label(date, today()))}</button></div>`
+        : `<div class="td-warn">Начало позже срока (${esc(fmtDate(t.due, true))}).<button type="button" class="btn sm" data-a="task-due-fix">Сдвинуть срок на ${esc(TaskDates.label(date, today()))}</button></div>`;
+    }
+    return;
+  }
+  if (bad && fix) { if (isDue) ch.start = date; else ch.due = date; }
+  const prev = { due: t.due || '', dueTime: t.dueTime || '', start: t.start || '', remindAt: t.remindAt || '', updatedAt: t.updatedAt };
+  if ('due' in ch && ch.due && ch.due !== (t.due || '')) t.remindAt = TaskDates.shiftRemind(t.remindAt, t.due, ch.due); // напоминание переезжает со сроком
+  Object.assign(t, ch);
+  t.updatedAt = new Date().toISOString();
+  ui.taskDate = null;
+  modal(null); save(); render();
+  const lbl = (d, tm) => TaskDates.label(d, today(), tm);
+  const msg = bad ? `Начало и срок: ${lbl(date, isDue ? time : t.dueTime)}`
+    : isDue ? (date ? 'Срок: ' + lbl(date, time) : 'Срок убран') : (date ? 'Начало: ' + lbl(date) : 'Начало убрано');
+  toast(msg, { label: 'Отменить', fn: () => { const x = task(t.id); if (!x) return; Object.assign(x, prev); save(); render(); toast('Срок возвращён'); } });
+}
 
 /* Задачи и проекты, к которым относится список счётчика (для подсветки на карте) */
 function homeSelection(key) {
@@ -1788,8 +1852,8 @@ SHEETS.task = function ({ id }) {
     <div class="card"><dl class="kv">
       <dt>Проект</dt><dd>${project(t.projectId) ? `<a href="#" data-a="open" data-type="project" data-id="${t.projectId}">${projectChip(t.projectId)}</a>` : '—'}</dd>
       <dt>Исполнитель</dt><dd>${personChip(t.assignee) || '—'}</dd>
-      <dt>Начало</dt><dd>${t.start ? esc(fmtDate(t.start, true)) : '—'}</dd>
-      <dt>Срок</dt><dd>${t.due ? dueChip(t) : '—'}</dd>
+      <dt>Начало</dt><dd>${t.start ? `<button type="button" class="chip chip-btn" data-a="task-due" data-id="${t.id}" data-field="start" title="Изменить начало">${esc(fmtDate(t.start, true))}</button>` : `<button type="button" class="btn sm" data-a="task-due" data-id="${t.id}" data-field="start">Указать</button>`}</dd>
+      <dt>Срок</dt><dd>${t.due ? dueChip(t) : `<button type="button" class="btn sm" data-a="task-due" data-id="${t.id}" data-field="due">Указать</button>`}</dd>
       ${t.remindAt ? `<dt>Напомнить</dt><dd>${esc(fmtDate(t.remindAt.slice(0, 10)))} ${esc(t.remindAt.slice(11, 16))}${t.important ? ' <span class="chip red">будильник</span>' : ''}</dd>` : ''}
       ${parent ? `<dt>Входит в</dt><dd><a href="#" data-a="open" data-type="task" data-id="${parent.id}">${esc(parent.title)}</a></dd>` : ''}
     </dl>${t.desc ? `<div class="desc mt">${esc(t.desc)}</div>` : ''}</div>`
@@ -2370,6 +2434,13 @@ const ACTIONS = {
     c.updatedAt = new Date().toISOString();
     save(); render(); toast(Number(el.dataset.val) === 0 ? 'Связаться сегодня' : 'Связаться завтра');
   },
+  // Быстрая смена срока / начала задачи (чип срока в списках, поля «Срок» и «Начало» в карточке)
+  'task-due': (el, ev) => taskDateDialog(el.dataset.id, el.dataset.field === 'start' ? 'start' : 'due', cursorAt(ev)),
+  'task-due-quick': (el) => taskDateCommit(TaskDates.quick(el.dataset.val, today()), (($('#td-time') || {}).value || '')),
+  'task-due-save': () => taskDateCommit(($('#td-date') || {}).value || '', ($('#td-time') || {}).value || ''),
+  'task-due-clear': () => taskDateCommit('', ''),
+  'task-due-fix': () => { const p = ui.taskDate && ui.taskDate.pending; if (p) taskDateCommit(p.date, p.time, true); },
+  'toast-action': () => { const a = ui.toastAction; ui.toastAction = null; clearTimeout(toastTimer); $('#toast').hidden = true; if (a) a.fn(); },
   'contact-date': (el) => {
     const c = contact(el.dataset.id);
     const def = c.nextContact && c.nextContact > today() ? c.nextContact : ymd(addDays(new Date(), 2));
