@@ -13,8 +13,8 @@
  */
 'use strict';
 
-var APP_VERSION = '1.7.3';
-var SCHEMA = 4;
+var APP_VERSION = '1.8.0';
+var SCHEMA = 5;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
 
 function emptyData() {
@@ -53,6 +53,7 @@ function emptyData() {
       mapId: null,
       crmSort: 'due', // CRM: 'due' — по сроку «Связаться», 'name' — по имени
       homeView: 'map', // «Мои дела» под счётчиками: 'map' — карта ответственных, 'projects' — сетка проектов
+      roadmap: { expanded: false, range: 'year' }, // «Дорожная карта»: только состояние вида (сама карта вычисляется из задач-вех)
     },
     tasks: [],
     contacts: [],
@@ -109,6 +110,13 @@ var MIGRATIONS = {
     (d.projects || []).forEach(function (p) { if (p && p.ownerId === undefined) p.ownerId = null; });
     if (!Array.isArray(d.maps)) d.maps = [];
     d.schema = 4;
+    return d;
+  },
+  // v4 → v5: флажок «Веха» у задачи (дорожная карта и финиш проекта вычисляются из вех)
+  4: function (d) {
+    (d.tasks || []).forEach(function (t) { if (t && t.milestone === undefined) t.milestone = false; });
+    if (d.settings && typeof d.settings === 'object' && !d.settings.roadmap) d.settings.roadmap = { expanded: false, range: 'year' };
+    d.schema = 5;
     return d;
   },
 };
@@ -190,6 +198,8 @@ function migrate(raw) {
   ['contactTypes', 'contactStatuses'].forEach(function (k) { if (!Array.isArray(d.settings[k])) d.settings[k] = def.settings[k].slice(); });
   if (d.settings.crmSort !== 'name') d.settings.crmSort = 'due';
   if (d.settings.homeView !== 'projects') d.settings.homeView = 'map';
+  var rm = d.settings.roadmap && typeof d.settings.roadmap === 'object' && !Array.isArray(d.settings.roadmap) ? d.settings.roadmap : {};
+  d.settings.roadmap = Object.assign({}, rm, { expanded: rm.expanded === true, range: ['quarter', 'half', 'year', 'all'].indexOf(rm.range) >= 0 ? rm.range : 'year' });
   ['tasks', 'contacts', 'events', 'notes', 'projects'].forEach(function (k) {
     if (!Array.isArray(d[k])) d[k] = [];
     d[k] = d[k].filter(function (x) { return x && typeof x === 'object'; });
@@ -200,6 +210,7 @@ function migrate(raw) {
     if (t.projectId === undefined) t.projectId = null;
     if (!t.id) t.id = 't' + Math.random().toString(36).slice(2, 10);
     t.title = t.title == null ? '' : String(t.title);
+    t.milestone = t.milestone === true;
   });
   d.events.forEach(function (e) {
     e.crmIds = Array.isArray(e.crmIds) ? e.crmIds : []; if (e.remind == null) e.remind = [d.settings.defaultRemind];

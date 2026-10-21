@@ -50,6 +50,9 @@ function initials(s) { const p = String(s || '?').trim().split(/\s+/); return ((
 
 /* Иконки (inline SVG) */
 const I = {
+  flag: '<path d="M5 21V4"/><path d="M5 4h12l-2.5 4L17 12H5"/>',
+  route: '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h8.5a3.5 3.5 0 0 0 0-7h-9a3.5 3.5 0 0 1 0-7H16"/>',
+  more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   map: '<rect x="9" y="2.5" width="6" height="5" rx="1.2"/><rect x="2.5" y="16.5" width="6" height="5" rx="1.2"/><rect x="15.5" y="16.5" width="6" height="5" rx="1.2"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>',
   home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   tasks: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.5 1.5L7.5 5M3.5 12 5 13.5 7.5 11M3.5 18 5 19.5 7.5 17"/>',
@@ -398,8 +401,9 @@ const ui = {
 };
 
 const TABS = [
-  { id: 'home', name: 'Мои дела', icon: 'home' },
+  { id: 'roadmap', name: 'Дорожная карта', short: 'Дор. карта', icon: 'route' },
   { id: 'calendar', name: 'Календарь', icon: 'cal' },
+  { id: 'home', name: 'Мои дела', icon: 'home' },
   { id: 'projects', name: 'Проекты', icon: 'folder' },
   { id: 'tasks', name: 'Задачи', icon: 'tasks' },
   { id: 'crm', name: 'CRM', icon: 'crm' },
@@ -419,10 +423,17 @@ function counts() {
 function renderNav() {
   const c = counts();
   const badge = { home: c.overdueTasks + c.overdueCrm, crm: c.overdueCrm, tasks: c.overdueTasks };
-  const btn = (t) => `<button data-a="tab" data-id="${t.id}" class="${ui.tab === t.id ? 'active' : ''}">${icon(t.icon)}<span>${t.name}</span>${badge[t.id] && t.id !== 'home' ? `<b class="badge">${badge[t.id]}</b>` : ''}</button>`;
+  const narrow = window.innerWidth < 600;
+  const btn = (t) => `<button data-a="tab" data-id="${t.id}" class="${ui.tab === t.id ? 'active' : ''}" title="${esc(t.name)}">${icon(t.icon)}<span>${narrow && t.short ? t.short : t.name}</span>${badge[t.id] && t.id !== 'home' ? `<b class="badge">${badge[t.id]}</b>` : ''}</button>`;
+  // Узкий экран: в нижней навигации не больше 6 кнопок — остальные разделы в «Ещё»
+  const MAX = 6;
+  const main = narrow && TABS.length > MAX ? TABS.slice(0, MAX - 1) : TABS;
+  const extra = narrow && TABS.length > MAX ? TABS.slice(MAX - 1) : [];
+  const extraBadge = extra.reduce((n, t) => n + (badge[t.id] || 0), 0);
+  const moreBtn = extra.length ? `<button data-a="nav-more" class="${extra.some((t) => t.id === ui.tab) ? 'active' : ''}">${icon('more')}<span>Ещё</span>${extraBadge ? `<b class="badge">${extraBadge}</b>` : ''}</button>` : '';
   $('#nav').innerHTML = `
     <div class="brand"><i></i>管理会计</div>
-    <div class="nav-items">${TABS.map(btn).join('')}</div>
+    <div class="nav-items">${main.map(btn).join('')}${moreBtn}</div>
     <div class="nav-foot">
       <button data-a="tab" data-id="summary" class="only-wide ${ui.tab === 'summary' ? 'active' : ''}">${icon('share')}<span>Сводка</span></button>
       <button data-a="tab" data-id="settings" class="only-wide ${ui.tab === 'settings' ? 'active' : ''}">${icon('settings')}<span>Настройки</span></button>
@@ -449,6 +460,7 @@ function afterRender() {
     tg.addEventListener('scroll', () => { ui.tgY = tg.scrollTop; }, { passive: true });
   }
   if (ui.tab === 'home' && typeof mapAfterRender === 'function') mapAfterRender();
+  if (ui.tab === 'roadmap' && typeof roadmapAfterRender === 'function') roadmapAfterRender();
   if (ui.tab === 'tasks' && D.settings.tasksView === 'links') drawLinks();
   if (ui.tab === 'tasks' && D.settings.tasksView === 'gantt') scrollGanttToToday();
 }
@@ -659,7 +671,7 @@ function taskItem(t) {
   return `<div class="item ${isDone(t) ? 'done' : ''}" data-a="open" data-type="task" data-id="${t.id}">
     <button class="check ${isDone(t) ? 'on' : ''}" data-a="toggle-task" data-id="${t.id}" aria-label="Готово">${isDone(t) ? icon('check') : ''}</button>
     <div class="grow">
-      <div class="t">${t.important ? '<span style="color:var(--danger)">●</span> ' : ''}${esc(t.title)}</div>
+      <div class="t">${t.milestone ? `<span class="ms-ic" title="Веха">${icon('flag')}</span>` : ''}${t.important ? '<span style="color:var(--danger)">●</span> ' : ''}${esc(t.title)}</div>
       <div class="s">${dueChip(t)}${personChip(t.assignee)}${ui.tab !== 'projects' && !(ui.stack.length && ui.stack[ui.stack.length - 1].type === 'project') ? projectChip(t.projectId) : ''}${crmChips(t.crmIds)}${parent ? `<span class="chip">${icon('sub')}${esc(parent.title)}</span>` : ''}${subs.length ? `<span class="chip">${subs.filter(isDone).length}/${subs.length} подзадач</span>` : ''}</div>
     </div>
   </div>`;
@@ -799,6 +811,15 @@ SCREENS.home = function () {
     ${body}
     <button class="fab" data-a="new-menu" aria-label="Создать">${icon('plus')}</button>`;
 };
+
+/* Финиш проекта = срок самой дальней вехи (roadmap.js) */
+function projectFinishLine(pid) {
+  const f = Roadmap.projectFinish(D, pid);
+  if (!f) return '';
+  return `<button type="button" class="rd-finish" data-a="open" data-type="task" data-id="${f.task.id}"><span class="ms-ic">${icon('flag')}</span>Финиш: <b>${esc(fmtDateY(f.due))}</b> · по вехе «${esc(f.task.title)}»</button>`;
+}
+// «31 мар 2027»
+function fmtDateY(s) { const d = parseDate(s); return d.getDate() + ' ' + MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear(); }
 
 /* ---------- Быстрая смена срока / начала задачи ---------- */
 function taskDateDialog(id, field, at) {
@@ -1054,7 +1075,7 @@ function kcard(t) {
   const parent = t.parentId && task(t.parentId);
   return `<div class="kcard ${st}" data-a="open" data-type="task" data-id="${t.id}">
     ${parent ? `<div class="small muted ellipsis">${icon('sub', '')} ${esc(parent.title)}</div>` : ''}
-    <div class="t">${t.important ? '<span style="color:var(--danger)">●</span> ' : ''}${esc(t.title)}</div>
+    <div class="t">${t.milestone ? `<span class="ms-ic" title="Веха">${icon('flag')}</span>` : ''}${t.important ? '<span style="color:var(--danger)">●</span> ' : ''}${esc(t.title)}</div>
     <div class="m">${dueChip(t)}${D.settings.kanbanGroup !== 'people' ? personChip(t.assignee) : ''}${D.settings.kanbanGroup !== 'project' ? projectChip(t.projectId) : ''}${D.settings.kanbanGroup !== 'status' ? `<span class="chip ${isDone(t) ? 'green' : ''}">${esc(statusName(t.status))}</span>` : ''}${crmChips(t.crmIds, 1)}${subs.length ? `<span class="chip">${subs.filter(isDone).length}/${subs.length}</span>` : ''}${t.deps.length ? `<span class="chip">${icon('link')}${t.deps.length}</span>` : ''}</div>
   </div>`;
 }
@@ -1094,18 +1115,19 @@ function gantt(tasks) {
   }).join('');
   const bg = days.map((d) => `<div class="${d.getDay() === 0 || d.getDay() === 6 ? 'we' : ''}" style="width:${dw}px"></div>`).join('');
   const lines = rows.map(({ t }) => {
-    const s = t.start || t.due, e = t.due || t.start;
-    const left = idx(s) * dw + 2;
+    // веха всегда ромбом в день срока, независимо от длительности
+    const s = t.milestone && t.due ? t.due : t.start || t.due, e = t.due || t.start;
+    const left = t.milestone && t.due ? idx(t.due) * dw + dw / 2 - 9 : idx(s) * dw + 2;
     const width = Math.max(1, idx(e) - idx(s) + 1) * dw - 4;
     const st = taskState(t);
-    const ms = !t.start || t.start === t.due ? (dw < 20) : false;
+    const ms = t.milestone && t.due ? true : !t.start || t.start === t.due ? (dw < 20) : false;
     return `<div class="g-line"><div class="g-bar ${st} ${ms ? 'milestone' : ''}" style="left:${left}px;width:${width}px" data-a="open" data-type="task" data-id="${t.id}">${ms ? '' : esc(t.title)}</div></div>`;
   }).join('');
   const todayX = idx(t0) * dw + dw / 2;
   return `<div class="gantt">
     <div class="g-left">
       <div class="g-head"><span class="lab">Задача</span></div>
-      ${rows.map(({ t, lvl }) => `<div class="g-row" style="padding-left:${10 + lvl * 16}px">${lvl ? icon('sub', '') : ''}<span class="t" data-a="open" data-type="task" data-id="${t.id}" style="${isDone(t) ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(t.title)}</span><i class="dot" style="background:${colorFor(t.assignee)}" title="${esc(t.assignee)}"></i></div>`).join('')}
+      ${rows.map(({ t, lvl }) => `<div class="g-row" style="padding-left:${10 + lvl * 16}px">${lvl ? icon('sub', '') : ''}<span class="t" data-a="open" data-type="task" data-id="${t.id}" style="${isDone(t) ? 'text-decoration:line-through;color:var(--muted)' : ''}">${t.milestone ? `<span class="ms-ic" title="Веха">${icon('flag')}</span>` : ''}${esc(t.title)}</span><i class="dot" style="background:${colorFor(t.assignee)}" title="${esc(t.assignee)}"></i></div>`).join('')}
     </div>
     <div class="g-right" id="gantt-scroll" data-today-x="${todayX}">
       <div style="width:${W}px">
@@ -1887,6 +1909,8 @@ SHEETS.taskForm = function ({ id, preset }) {
       <div class="field"><label>Начало</label><input type="date" name="start" value="${esc(t.start || '')}"></div>
       <div class="field"><label>Срок</label><input type="date" name="due" value="${esc(t.due || '')}"></div>
     </div>
+    <label class="toggle ms-toggle"><input type="checkbox" name="milestone" ${t.milestone ? 'checked' : ''}><span class="ms-ic">${icon('flag')}</span><span class="grow">Веха<small>Ключевая точка проекта: попадает на «Дорожную карту», самая дальняя веха — финиш проекта</small></span></label>
+    <div class="ms-hint" id="ms-hint" ${t.milestone && !t.due ? '' : 'hidden'}>У вехи должен быть срок — без него она не попадёт на дорожную карту</div>
     <div class="field"><label>Входит в задачу (родительская)</label><select name="parentId"><option value="">— самостоятельная задача —</option>${parents.map((p) => `<option value="${p.id}" ${t.parentId === p.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select></div>
     <div class="field"><label>Напомнить</label><input type="datetime-local" name="remindAt" value="${esc(t.remindAt || '')}"></div>
     <label class="toggle"><input type="checkbox" name="important" ${t.important ? 'checked' : ''}><span class="grow">Напомнить будильником<small>Звонит, пока не отключите вручную</small></span></label>
@@ -1908,6 +1932,7 @@ SHEETS.project = function ({ id }) {
   const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
   return sheetHead(`<i class="dot" style="background:${esc(p.color || colorFor(p.name))};width:12px;height:12px"></i> ${esc(p.name)}`, `<button class="icon-btn" data-a="edit" data-type="project" data-id="${p.id}" aria-label="Изменить">${icon('edit')}</button>`)
     + `${p.category || p.ownerId ? `<div style="margin:-4px 0 10px">${p.ownerId ? `<span class="chip blue" title="Ответственный">${icon('crm')}${esc(p.ownerId)}</span> ` : ''}${p.category ? `<span class="chip violet">${icon('folder')}${esc(p.category)}</span>` : ''}</div>` : ''}${p.desc ? `<div class="desc" style="margin-bottom:12px">${esc(p.desc)}</div>` : ''}
+    ${projectFinishLine(p.id)}
     <div class="pc-cats" style="margin-bottom:10px">
       <div class="pc-cat todo ${st.todoTasks.length + st.todoCrm.length ? 'hot' : ''}"><span class="l">К выполнению</span><span class="v"><b>${st.todoTasks.length}</b> задач · <b>${st.todoCrm.length}</b> crm</span></div>
       <div class="pc-cat od ${st.overdueTasks.length + st.overdueCrm.length ? 'hot' : ''}"><span class="l">Просрочено</span><span class="v"><b>${st.overdueTasks.length}</b> задач · <b>${st.overdueCrm.length}</b> crm</span></div>
@@ -2206,7 +2231,7 @@ function submitForm(form) {
       if (ex) projectId = ex.id;
       else { const np = { id: uid('p'), name: g('projectNew'), color: PROJECT_COLORS[D.projects.length % PROJECT_COLORS.length], desc: '', archived: false, createdAt: now, updatedAt: now }; D.projects.push(np); projectId = np.id; }
     }
-    const data = { title: g('title'), projectId, assignee, status: g('status') || 'todo', start: g('start'), due: g('due'), parentId: g('parentId') || null, remindAt: g('remindAt'), important: f.get('important') === 'on', desc: g('desc') };
+    const data = { title: g('title'), projectId, assignee, status: g('status') || 'todo', start: g('start'), due: g('due'), parentId: g('parentId') || null, remindAt: g('remindAt'), important: f.get('important') === 'on', milestone: f.get('milestone') === 'on', desc: g('desc') };
     if (data.start && data.due && data.start > data.due) { toast('Начало позже срока — поменял местами'); [data.start, data.due] = [data.due, data.start]; }
     if (id) { Object.assign(task(id), data, { updatedAt: now }); saved = task(id); }
     else {
@@ -2325,6 +2350,14 @@ const ACTIONS = {
   open: (el) => openSheet(el.dataset.type, el.dataset.id),
   'sheet-back': () => closeSheet(),
   'sheet-close': () => closeAll(),
+  'nav-more': () => {
+    const c = counts();
+    const badge = { crm: c.overdueCrm, tasks: c.overdueTasks };
+    modal(`<h3>Разделы</h3><div class="rm-menu">${TABS.slice(5).map((t) => `<button class="btn ${ui.tab === t.id ? 'primary' : ''}" data-a="nav-go" data-id="${t.id}">${icon(t.icon)}${esc(t.name)}${badge[t.id] ? ` <b class="badge-inline">${badge[t.id]}</b>` : ''}</button>`).join('')}
+      <button class="btn" data-a="nav-go" data-id="summary">${icon('share')}Сводка</button><button class="btn" data-a="nav-go" data-id="settings">${icon('settings')}Настройки</button>
+      <button class="btn" data-a="modal-close">Закрыть</button></div>`);
+  },
+  'nav-go': (el) => { modal(null); go(el.dataset.id); },
   'modal-close': () => { ui.picker = null; modal(null); renderSheet(); if (!ui.stack.length) render(); },
   'confirm-yes': () => { const f = ui.onConfirm; ui.onConfirm = null; modal(null); if (f) f(); },
   'home-filter': (el) => { ui.homeFilter = el.dataset.id && ui.homeFilter !== el.dataset.id ? el.dataset.id : null; render(); },

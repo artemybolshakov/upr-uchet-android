@@ -19,10 +19,10 @@ for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json')).sort()) {
   const raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
   const src = raw.format === S.BACKUP_FORMAT ? raw.data : raw;
   if (Number(src.schema || 1) >= 4) continue; // копии v4+ проверяет backup-compat
-  check(f + ': схема v4, ownerId = null, maps = []', () => {
+  check(f + ': схема v' + S.SCHEMA + ', ownerId = null, maps = []', () => {
     const r = S.parseBackup(JSON.stringify(raw));
     assert.ok(r.ok, r.error);
-    assert.strictEqual(r.data.schema, 4);
+    assert.strictEqual(r.data.schema, S.SCHEMA);
     assert.ok(r.data.projects.every((p) => p.ownerId === null), 'ownerId не null');
     assert.deepStrictEqual(r.data.maps, []);
   });

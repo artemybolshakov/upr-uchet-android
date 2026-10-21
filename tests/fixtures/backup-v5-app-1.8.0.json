@@ -1,0 +1,425 @@
+{
+ "format": "upr-uchet-backup",
+ "schema": 5,
+ "appVersion": "1.8.0",
+ "exportedAt": "2026-10-21T15:21:55.207Z",
+ "data": {
+  "schema": 5,
+  "meta": {
+   "createdAt": "2026-10-21T15:21:54.617Z",
+   "updatedAt": "2026-10-21T15:21:55.206Z",
+   "appVersion": "1.8.0"
+  },
+  "settings": {
+   "me": "Я",
+   "people": [
+    "Я",
+    "Анна",
+    "Игорь"
+   ],
+   "statuses": [
+    {
+     "id": "todo",
+     "name": "К выполнению"
+    },
+    {
+     "id": "doing",
+     "name": "В работе"
+    },
+    {
+     "id": "wait",
+     "name": "Ожидание"
+    },
+    {
+     "id": "done",
+     "name": "Готово"
+    }
+   ],
+   "defaultRemind": 15,
+   "importantRemind": [
+    60,
+    15,
+    0
+   ],
+   "taskRemindTime": "10:00",
+   "deviceCalendarId": null,
+   "showDeviceCalendars": [],
+   "showDeviceEvents": true,
+   "summary": {
+    "home": true,
+    "overdue": true,
+    "today": true,
+    "week": true,
+    "people": true,
+    "events": true,
+    "crm": true,
+    "notes": false,
+    "projects": true
+   },
+   "tasksView": "kanban",
+   "kanbanGroup": "people",
+   "linksGroup": "parents",
+   "ganttScale": "day",
+   "contactTypes": [
+    "Инвестор",
+    "Ангел",
+    "Партнер",
+    "Инфлюенсер",
+    "Издатель",
+    "Разработчик",
+    "Медиа",
+    "Музыка",
+    "Фонд",
+    "ГОС",
+    "Образование",
+    "Сотрудник"
+   ],
+   "contactStatuses": [
+    "Надо освежить",
+    "Работаем",
+    "Диалог",
+    "Архив молчаливый",
+    "Архив жесткий отказ",
+    "Поиск денег прямо сейчас"
+   ],
+   "birthdayRemind": true,
+   "projectCategories": [],
+   "projectsGroup": "category",
+   "projectsSort": "attention",
+   "calView": "month",
+   "kanbanOrder": {},
+   "newEventTarget": "app",
+   "mapId": "m1",
+   "crmSort": "due",
+   "homeView": "map",
+   "roadmap": {
+    "expanded": true,
+    "range": "half"
+   }
+  },
+  "tasks": [
+   {
+    "id": "tmvi9fytin8y2x",
+    "desc": "",
+    "assignee": "Я",
+    "status": "doing",
+    "start": "2026-10-16",
+    "due": "2026-11-02",
+    "crmIds": [
+     "cmvi9fythsc3gf"
+    ],
+    "eventIds": [],
+    "deps": [],
+    "parentId": null,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Запуск поставки для «Вектора»",
+    "projectId": "pmvi9fytiwhela",
+    "milestone": true
+   },
+   {
+    "id": "tmvi9fytiicqbj",
+    "desc": "",
+    "assignee": "Анна",
+    "status": "todo",
+    "start": "2026-10-16",
+    "due": "2027-03-31",
+    "crmIds": [
+     "cmvi9fythsc3gf"
+    ],
+    "eventIds": [
+     "emvi9fythlsouk"
+    ],
+    "deps": [],
+    "parentId": "tmvi9fytin8y2x",
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Отчёт ИРИ",
+    "projectId": "pmvi9fytiwhela",
+    "milestone": true
+   },
+   {
+    "id": "tmvi9fytiv8k3e",
+    "desc": "",
+    "assignee": "Я",
+    "status": "doing",
+    "start": "2026-10-21",
+    "due": "2026-10-24",
+    "crmIds": [
+     "cmvi9fythsc3gf"
+    ],
+    "eventIds": [],
+    "deps": [
+     "tmvi9fytiicqbj"
+    ],
+    "parentId": "tmvi9fytin8y2x",
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Согласовать спецификацию",
+    "projectId": "pmvi9fytiwhela"
+   },
+   {
+    "id": "tmvi9fytihg3wc",
+    "desc": "",
+    "assignee": "Игорь",
+    "status": "todo",
+    "start": "2026-10-25",
+    "due": "2026-10-26",
+    "crmIds": [],
+    "eventIds": [],
+    "deps": [
+     "tmvi9fytiv8k3e"
+    ],
+    "parentId": "tmvi9fytin8y2x",
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Счёт на предоплату",
+    "projectId": "pmvi9fytiwhela"
+   },
+   {
+    "id": "tmvi9fytiw4uqg",
+    "desc": "",
+    "assignee": "Анна",
+    "status": "todo",
+    "start": "2026-10-19",
+    "due": "2026-11-10",
+    "crmIds": [
+     "cmvi9fythjazsq"
+    ],
+    "eventIds": [],
+    "deps": [],
+    "parentId": null,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Новый сайт",
+    "projectId": "pmvi9fytih2jrw"
+   },
+   {
+    "id": "tmvi9fytijcyik",
+    "desc": "",
+    "assignee": "Анна",
+    "status": "todo",
+    "start": "2026-10-19",
+    "due": "2026-10-21",
+    "crmIds": [
+     "cmvi9fythjazsq"
+    ],
+    "eventIds": [
+     "emvi9fythjy77d"
+    ],
+    "deps": [],
+    "parentId": "tmvi9fytiw4uqg",
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Утвердить макеты",
+    "projectId": "pmvi9fytih2jrw"
+   },
+   {
+    "id": "tmvi9fytizlbe1",
+    "desc": "",
+    "assignee": "Игорь",
+    "status": "todo",
+    "start": "2026-10-22",
+    "due": "2026-10-29",
+    "crmIds": [],
+    "eventIds": [],
+    "deps": [
+     "tmvi9fytijcyik"
+    ],
+    "parentId": "tmvi9fytiw4uqg",
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Вёрстка главной",
+    "projectId": "pmvi9fytih2jrw"
+   },
+   {
+    "id": "tmvi9fyti4sasi",
+    "desc": "",
+    "assignee": "Я",
+    "status": "todo",
+    "start": "",
+    "due": "2026-10-27",
+    "crmIds": [
+     "cmvi9fythuw7d2"
+    ],
+    "eventIds": [],
+    "deps": [],
+    "parentId": null,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Продлить кредитную линию",
+    "projectId": "pmvi9fytiwhela"
+   },
+   {
+    "id": "tmvi9fytiec0zf",
+    "desc": "",
+    "assignee": "Я",
+    "status": "todo",
+    "start": "",
+    "due": "2026-10-21",
+    "crmIds": [],
+    "eventIds": [],
+    "deps": [],
+    "parentId": null,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "title": "Отчёт партнёру за месяц"
+   },
+   {
+    "id": "tms-nodue",
+    "title": "Веха без срока",
+    "projectId": "pmvi9fytiwhela",
+    "assignee": "Я",
+    "status": "todo",
+    "due": "",
+    "start": "",
+    "milestone": true,
+    "crmIds": [],
+    "eventIds": [],
+    "deps": [],
+    "parentId": null,
+    "desc": "",
+    "createdAt": "2026-10-21T10:00:00Z"
+   }
+  ],
+  "contacts": [
+   {
+    "id": "cmvi9fythsc3gf",
+    "name": "Сергей Петров",
+    "company": "ООО «Вектор»",
+    "role": "Директор",
+    "phone": "+7 900 000-00-01",
+    "email": "",
+    "tags": [
+     "клиент"
+    ],
+    "nextContact": "2026-10-19",
+    "remind": true,
+    "comment": "Обсуждаем поставку на 4 квартал",
+    "createdAt": "2026-10-21T15:21:55.205Z"
+   },
+   {
+    "id": "cmvi9fythjazsq",
+    "name": "Мария Иванова",
+    "company": "Студия «Линия»",
+    "role": "Арт-директор",
+    "phone": "",
+    "email": "maria@example.com",
+    "tags": [
+     "партнёр"
+    ],
+    "nextContact": "2026-10-21",
+    "remind": true,
+    "comment": "",
+    "createdAt": "2026-10-21T15:21:55.205Z"
+   },
+   {
+    "id": "cmvi9fythuw7d2",
+    "name": "Олег Смирнов",
+    "company": "Банк",
+    "role": "Менеджер",
+    "phone": "",
+    "email": "",
+    "tags": [],
+    "nextContact": "2026-10-31",
+    "remind": true,
+    "comment": "",
+    "createdAt": "2026-10-21T15:21:55.205Z"
+   }
+  ],
+  "events": [
+   {
+    "id": "emvi9fythlsouk",
+    "title": "Встреча с Сергеем: договор",
+    "start": "2026-10-21T15:00",
+    "end": "2026-10-21T16:00",
+    "allDay": false,
+    "location": "Офис",
+    "desc": "",
+    "important": true,
+    "remind": [],
+    "crmIds": [
+     "cmvi9fythsc3gf"
+    ],
+    "createdAt": "2026-10-21T15:21:55.205Z"
+   },
+   {
+    "id": "emvi9fythjy77d",
+    "title": "Созвон по макетам",
+    "start": "2026-10-22T11:00",
+    "end": "2026-10-22T11:30",
+    "allDay": false,
+    "location": "",
+    "desc": "",
+    "important": false,
+    "remind": [
+     15
+    ],
+    "crmIds": [
+     "cmvi9fythjazsq"
+    ],
+    "createdAt": "2026-10-21T15:21:55.205Z"
+   }
+  ],
+  "notes": [
+   {
+    "id": "nmvi9fytie9tg9",
+    "title": "Скидка за объём",
+    "body": "Предложить 5% при заказе от 100 шт.\nСпросить про сроки оплаты.",
+    "crmIds": [
+     "cmvi9fythsc3gf"
+    ],
+    "discussed": false,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "updatedAt": "2026-10-21T15:21:55.205Z"
+   },
+   {
+    "id": "nmvi9fytizelr3",
+    "title": "Идеи по сайту",
+    "body": "Каталог с фильтрами, онлайн-заявка.",
+    "crmIds": [
+     "cmvi9fythjazsq"
+    ],
+    "discussed": false,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "updatedAt": "2026-10-21T15:21:55.205Z"
+   }
+  ],
+  "projects": [
+   {
+    "id": "pmvi9fytiwhela",
+    "name": "Поставка «Вектору»",
+    "color": "#2f5bea",
+    "desc": "Первая партия и договор",
+    "archived": false,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "updatedAt": "2026-10-21T15:21:55.205Z",
+    "ownerId": "Я"
+   },
+   {
+    "id": "pmvi9fytih2jrw",
+    "name": "Новый сайт",
+    "color": "#1f9d5a",
+    "desc": "",
+    "archived": false,
+    "createdAt": "2026-10-21T15:21:55.205Z",
+    "updatedAt": "2026-10-21T15:21:55.205Z"
+   }
+  ],
+  "maps": [
+   {
+    "id": "m1",
+    "name": "Руководители",
+    "nodes": [
+     {
+      "id": "n1",
+      "type": "person",
+      "ref": "Я",
+      "parentId": null,
+      "collapsed": false
+     },
+     {
+      "id": "n2",
+      "type": "project",
+      "ref": "pmvi9fytiwhela",
+      "parentId": "n1",
+      "collapsed": false
+     }
+    ],
+    "createdAt": "2026-10-21T10:00:00Z",
+    "updatedAt": "2026-10-21T10:00:00Z"
+   }
+  ]
+ }
+}
