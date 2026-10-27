@@ -104,3 +104,7 @@ require('./roadmap.test.js');
 // Чек-лист дня (тот же шаг CI)
 console.log('');
 require('./checklist.test.js');
+
+// Синхронизация с Битрикс24 (тот же шаг CI)
+console.log('');
+require('./bitrix.test.js');

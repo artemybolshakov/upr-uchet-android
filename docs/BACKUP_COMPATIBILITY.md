@@ -35,6 +35,7 @@
 | v4 | 1.6 | `project.ownerId`, `maps[]` (карта ответственных) |
 | v5 | 1.8 | `task.milestone` (веха, по умолчанию `false`), `settings.roadmap` = `{ expanded, range }` |
 | v6 | 1.9 | «Чек-лист дня»: `settings.checklist` = `[{ id, name, archived }]` (8 пунктов по умолчанию), `settings.checklistShow`, `checklistLog` = `{ 'YYYY-MM-DD': { [itemId]: 'HH:MM' } }` (400 дней; удалённый пункт = `archived: true`, история остаётся) |
+| v6 | 1.10 | без смены схемы: `settings.bitrix` = `{ users, groups, pushed, remoteChanged, known, since, meId, meName, remind, remindTime, lastPush, lastPull }` — сопоставления и отметки синхронизации с Битрикс24 (добавляется со значениями по умолчанию; старые версии сохраняют его как неизвестное поле). **Адрес вебхука в данных и копиях не хранится** — только в настройках приложения на телефоне |
 
 ## Что делает приложение при восстановлении
 

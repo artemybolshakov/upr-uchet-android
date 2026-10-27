@@ -94,6 +94,20 @@ public final class Bridge {
     @JavascriptInterface
     public double dataRev() { return WebServer.REV.get(); }
 
+    // ---------- Битрикс24 (входящий вебхук; адрес хранится только в настройках телефона) ----------
+
+    /** "ok" | "cleared" | "invalid". Адрес обратно в JS не отдаётся. */
+    @JavascriptInterface
+    public String bitrixSetWebhook(String url) { return Bitrix.setWebhook(a, url); }
+
+    /** {configured, host, userId} */
+    @JavascriptInterface
+    public String bitrixInfo() { return Bitrix.info(a); }
+
+    /** Асинхронно: ответ — событие "bitrix" с тем же reqId. */
+    @JavascriptInterface
+    public void bitrixCall(String reqId, String method, String paramsJson) { Bitrix.call(a, reqId, method, paramsJson); }
+
     @JavascriptInterface
     public boolean backupNow() { return Store.autoBackup(a, true); }
 

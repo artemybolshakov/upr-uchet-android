@@ -10,8 +10,8 @@ android {
         applicationId "com.artemiy.uprucheet"
         minSdk 26
         targetSdk 35
-        versionCode 18
-        versionName "1.9.1"
+        versionCode 19
+        versionName "1.10.0"
         // Номер сборки GitHub Actions — показывается при установке обновления («сборка N»)
         manifestPlaceholders = [buildNumber: System.getenv("GITHUB_RUN_NUMBER") ?: "0"]
     }

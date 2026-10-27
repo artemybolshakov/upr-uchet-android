@@ -13,12 +13,14 @@
  */
 'use strict';
 
-var APP_VERSION = '1.9.1';
+var APP_VERSION = '1.10.0';
 var SCHEMA = 6;
 var BACKUP_FORMAT = 'upr-uchet-backup'; // имя формата не меняем — по нему узнаём копии всех версий
 
 // «Чек-лист дня» (checklist.js): в браузере подключается раньше schema.js, в node — через require
 var CL = typeof Checklist !== 'undefined' ? Checklist : (typeof require === 'function' ? require('./checklist.js') : null);
+// Синхронизация с Битрикс24 (bitrix.js): сопоставления и отметки выгрузки в settings.bitrix
+var BXS = typeof BitrixSync !== 'undefined' ? BitrixSync : (typeof require === 'function' ? require('./bitrix.js') : null);
 
 function emptyData() {
   return {
@@ -59,6 +61,7 @@ function emptyData() {
       roadmap: { expanded: false, range: 'year' }, // «Дорожная карта»: только состояние вида (сама карта вычисляется из задач-вех)
       checklist: CL.defaults(), // «Чек-лист дня»: [{ id, name, archived }] в нужном порядке
       checklistShow: true,      // показывать чек-лист на «Моих делах»
+      bitrix: BXS.defaults(),   // Битрикс24: сопоставления людей/проектов и отметки выгрузки (адрес вебхука здесь НЕ хранится)
     },
     tasks: [],
     contacts: [],
@@ -260,6 +263,7 @@ function migrate(raw) {
   d.tasks.forEach(function (t) { if (t.projectId && !pids[t.projectId]) t.projectId = null; });
   pruneMaps(d);
   CL.normalize(d);
+  d.settings.bitrix = BXS.normalize(d.settings.bitrix);
   if (d.settings.mapId != null && !d.maps.some(function (m) { return m.id === d.settings.mapId; })) d.settings.mapId = null;
   if (d.schema > SCHEMA) d.newerSchema = d.schema; // данные из более новой версии: неизвестные поля сохраняются как есть
   else { d.schema = SCHEMA; delete d.newerSchema; }
