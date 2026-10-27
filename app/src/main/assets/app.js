@@ -427,20 +427,24 @@ function renderNav() {
   // «Мои дела»: общий счётчик просрочек = просроченные задачи + просроченные контакты CRM (те же числа, что у «Задач» и «CRM»)
   const homeTip = badge.home ? `${c.overdueTasks} ${plural(c.overdueTasks, 'задача', 'задачи', 'задач')} + ${c.overdueCrm} ${plural(c.overdueCrm, 'контакт', 'контакта', 'контактов')} CRM` : '';
   const btn = (t) => `<button data-a="tab" data-id="${t.id}" class="${ui.tab === t.id ? 'active' : ''}" title="${esc(t.id === 'home' && homeTip ? t.name + ': просрочено ' + homeTip : t.name)}"${t.id === 'home' && homeTip ? ` data-tip="Просрочено: ${esc(homeTip)}"` : ''}>${icon(t.icon)}<span>${narrow && t.short ? t.short : t.name}</span>${badge[t.id] ? `<b class="badge">${badge[t.id]}</b>` : ''}</button>`;
-  // Узкий экран: в нижней навигации не больше 6 кнопок — остальные разделы в «Ещё»
-  const MAX = 6;
-  const main = narrow && TABS.length > MAX ? TABS.slice(0, MAX - 1) : TABS;
-  const extra = narrow && TABS.length > MAX ? TABS.slice(MAX - 1) : [];
-  const extraBadge = extra.reduce((n, t) => n + (badge[t.id] || 0), 0);
-  const moreBtn = extra.length ? `<button data-a="nav-more" class="${extra.some((t) => t.id === ui.tab) ? 'active' : ''}">${icon('more')}<span>Ещё</span>${extraBadge ? `<b class="badge">${extraBadge}</b>` : ''}</button>` : '';
+  // Узкий экран: все разделы кнопками, по 4 в ряду (при 5+ разделах — два ряда), порядок как в TABS
+  const rows = narrow && TABS.length > 4 ? 'two-rows' : '';
   $('#nav').innerHTML = `
     <div class="brand"><i></i>管理会计</div>
-    <div class="nav-items">${main.map(btn).join('')}${moreBtn}</div>
+    <div class="nav-items ${rows}">${TABS.map(btn).join('')}</div>
     <div class="nav-foot">
       <button data-a="tab" data-id="summary" class="only-wide ${ui.tab === 'summary' ? 'active' : ''}">${icon('share')}<span>Сводка</span></button>
       <button data-a="tab" data-id="settings" class="only-wide ${ui.tab === 'settings' ? 'active' : ''}">${icon('settings')}<span>Настройки</span></button>
     </div>`;
+  syncNavHeight();
 }
+// Высота нижней панели (вместе с полоской жестов) — для плавающей кнопки «+» и тостов
+function syncNavHeight() {
+  const nav = $('#nav');
+  const h = nav && window.innerWidth < 600 ? nav.offsetHeight : 0;
+  document.documentElement.style.setProperty('--nav-h', h + 'px');
+}
+window.addEventListener('resize', syncNavHeight);
 
 function render() {
   renderNav();
@@ -1445,7 +1449,7 @@ function dayPanel(sel) {
 SCREENS.calendar = function () {
   const v = calView();
   const sel = ui.cal.sel;
-  const top = `<div class="head"><h1>Календарь</h1><button class="btn primary" data-a="new" data-type="event" data-preset='${esc(JSON.stringify({ date: sel }))}'>${icon('plus')}<span>Событие</span></button></div>
+  const top = `<div class="head"><h1>Календарь</h1><button class="btn" data-a="new" data-type="task" data-preset='${esc(JSON.stringify({ start: sel }))}' title="Задача с началом в выбранный день">${icon('plus')}<span>Задача</span></button><button class="btn primary" data-a="new" data-type="event" data-preset='${esc(JSON.stringify({ date: sel }))}'>${icon('plus')}<span>Событие</span></button></div>
     <div class="cal-top">
       <div class="seg">${CAL_VIEWS.map(([k, n]) => `<button class="${v === k ? 'on' : ''}" data-a="cal-view" data-id="${k}">${n}</button>`).join('')}</div>
       <div class="row cal-nav">
@@ -1895,7 +1899,12 @@ SHEETS.task = function ({ id }) {
 };
 
 SHEETS.taskForm = function ({ id, preset }) {
-  const t = id ? task(id) : Object.assign({ title: '', desc: '', assignee: D.settings.me, status: 'todo', start: '', due: '', dueTime: '', remindAt: '', important: false, parentId: null, projectId: null }, preset || {});
+  // Новая задача: «Начало» = сегодня (или дата из контекста: preset.start); пустое preset.start сегодняшнюю дату не затирает.
+  // «Срок» не заполняется автоматически. Если срок из контекста раньше начала — начало приравнивается к сроку.
+  const pre = Object.assign({}, preset || {});
+  if (!pre.start) delete pre.start;
+  const t = id ? task(id) : Object.assign({ title: '', desc: '', assignee: D.settings.me, status: 'todo', start: today(), due: '', dueTime: '', remindAt: '', important: false, parentId: null, projectId: null }, pre);
+  if (!id && t.start && t.due && t.due < t.start) t.start = t.due;
   const projects = D.projects.filter((p) => !p.archived || p.id === t.projectId).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   const people = allPeople();
   const exclude = new Set();
@@ -1912,6 +1921,7 @@ SHEETS.taskForm = function ({ id, preset }) {
       <div class="field"><label>Начало</label><input type="date" name="start" value="${esc(t.start || '')}"></div>
       <div class="field"><label>Срок</label><input type="date" name="due" value="${esc(t.due || '')}"></div>
     </div>
+    <div class="ms-hint" id="start-hint" hidden>Начало сдвинуто на срок</div>
     <label class="toggle ms-toggle"><input type="checkbox" name="milestone" ${t.milestone ? 'checked' : ''}><span class="ms-ic">${icon('flag')}</span><span class="grow">Веха<small>Ключевая точка проекта: попадает на «Дорожную карту», самая дальняя веха — финиш проекта</small></span></label>
     <div class="ms-hint" id="ms-hint" ${t.milestone && !t.due ? '' : 'hidden'}>У вехи должен быть срок — без него она не попадёт на дорожную карту</div>
     <div class="field"><label>Входит в задачу (родительская)</label><select name="parentId"><option value="">— самостоятельная задача —</option>${parents.map((p) => `<option value="${p.id}" ${t.parentId === p.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select></div>
@@ -2045,7 +2055,7 @@ SHEETS.event = function ({ id }) {
     <label class="toggle mt"><input type="checkbox" data-a="event-important" data-id="${e.id}" ${e.important ? 'checked' : ''}><span class="grow">Важное — звонить как будильник<small>Сигнал не прекратится, пока вы не отключите его вручную</small></span></label>`
     + linkSection('CRM-карточки', smallBtn('pick', '+ Привязать', `data-type="contact" data-for="event" data-id="${e.id}"`),
       crms.length ? listOf(crms, contactItem, '') : '<div class="sub">Не привязано к контактам</div>')
-    + linkSection('Задачи', smallBtn('pick', '+ Привязать', `data-type="task" data-for="event" data-id="${e.id}"`) + smallBtn('new', '+ Новая', `data-type="task" data-preset='${esc(JSON.stringify({ eventIds: [e.id], crmIds: e.crmIds, due: e.start.slice(0, 10) }))}'`),
+    + linkSection('Задачи', smallBtn('pick', '+ Привязать', `data-type="task" data-for="event" data-id="${e.id}"`) + smallBtn('new', '+ Новая', `data-type="task" data-preset='${esc(JSON.stringify({ eventIds: [e.id], crmIds: e.crmIds, start: e.start.slice(0, 10), due: e.start.slice(0, 10) }))}'`),
       tks.length ? listOf(tks, taskItem, '') : '<div class="sub">Нет связанных задач</div>')
     + (crms.length ? linkSection('Обсудить на встрече', smallBtn('new', '+ Заметка', `data-type="note" data-preset='${esc(JSON.stringify({ crmId: crms[0].id }))}'`), nts.length ? listOf(nts, noteItem, '') : '<div class="sub">Нет открытых заметок к этим контактам</div>') : '')
     + `<div class="form-actions mt2"><button class="btn danger" data-a="delete" data-type="event" data-id="${e.id}">${icon('trash')}Удалить</button></div>`;
@@ -2235,7 +2245,7 @@ function submitForm(form) {
       else { const np = { id: uid('p'), name: g('projectNew'), color: PROJECT_COLORS[D.projects.length % PROJECT_COLORS.length], desc: '', archived: false, createdAt: now, updatedAt: now }; D.projects.push(np); projectId = np.id; }
     }
     const data = { title: g('title'), projectId, assignee, status: g('status') || 'todo', start: g('start'), due: g('due'), parentId: g('parentId') || null, remindAt: g('remindAt'), important: f.get('important') === 'on', milestone: f.get('milestone') === 'on', desc: g('desc') };
-    if (data.start && data.due && data.start > data.due) { toast('Начало позже срока — поменял местами'); [data.start, data.due] = [data.due, data.start]; }
+    if (data.start && data.due && data.start > data.due) { toast('Начало сдвинуто на срок'); data.start = data.due; }
     if (id) { Object.assign(task(id), data, { updatedAt: now }); saved = task(id); }
     else {
       saved = Object.assign({ id: uid('t'), crmIds: (preset.crmIds || []).slice(), eventIds: (preset.eventIds || []).slice(), deps: [], createdAt: now, updatedAt: now }, data);
@@ -2353,14 +2363,6 @@ const ACTIONS = {
   open: (el) => openSheet(el.dataset.type, el.dataset.id),
   'sheet-back': () => closeSheet(),
   'sheet-close': () => closeAll(),
-  'nav-more': () => {
-    const c = counts();
-    const badge = { crm: c.overdueCrm, tasks: c.overdueTasks };
-    modal(`<h3>Разделы</h3><div class="rm-menu">${TABS.slice(5).map((t) => `<button class="btn ${ui.tab === t.id ? 'primary' : ''}" data-a="nav-go" data-id="${t.id}">${icon(t.icon)}${esc(t.name)}${badge[t.id] ? ` <b class="badge-inline">${badge[t.id]}</b>` : ''}</button>`).join('')}
-      <button class="btn" data-a="nav-go" data-id="summary">${icon('share')}Сводка</button><button class="btn" data-a="nav-go" data-id="settings">${icon('settings')}Настройки</button>
-      <button class="btn" data-a="modal-close">Закрыть</button></div>`);
-  },
-  'nav-go': (el) => { modal(null); go(el.dataset.id); },
   'modal-close': () => { ui.picker = null; modal(null); renderSheet(); if (!ui.stack.length) render(); },
   'confirm-yes': () => { const f = ui.onConfirm; ui.onConfirm = null; modal(null); if (f) f(); },
   'home-filter': (el) => { ui.homeFilter = el.dataset.id && ui.homeFilter !== el.dataset.id ? el.dataset.id : null; render(); },
@@ -2592,7 +2594,11 @@ const ACTIONS = {
       <div class="item" data-a="new-close" data-type="event">${icon('cal')}<div class="t">Событие</div></div>
       <div class="item" data-a="new-close" data-type="contact">${icon('crm')}<div class="t">Контакт CRM</div></div>
       <div class="item" data-a="new-close" data-type="note">${icon('notes')}<div class="t">Заметка</div></div></div>`),
-  'new-close': (el) => { modal(null); openSheet(el.dataset.type, null, { edit: true, preset: el.dataset.type === 'event' ? { date: today() } : {} }); },
+  'new-close': (el) => {
+    modal(null);
+    const t = el.dataset.type, day = ui.tab === 'calendar' ? ui.cal.sel : today(); // в календаре — выбранный день
+    openSheet(t, null, { edit: true, preset: t === 'event' ? { date: day } : t === 'task' && ui.tab === 'calendar' ? { start: day } : {} });
+  },
   'quick-summary': () => copyText(buildSummary()),
   'summary-copy': () => copyText(buildSummary({ person: ui.summaryPerson || '' })),
   'summary-share': () => { const t = buildSummary({ person: ui.summaryPerson || '' }); if (N) N.shareText(t); else if (navigator.share) navigator.share({ text: t }); else copyText(t); },

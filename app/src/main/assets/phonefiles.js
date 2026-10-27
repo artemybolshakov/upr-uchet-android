@@ -15,7 +15,7 @@ ui.pf = { queue: [], cur: null, list: null, timer: null };
 
 if (IS_WEB) {
   I.upload = '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>';
-  TABS.push({ id: 'files', name: 'Файлы на телефон', icon: 'upload' });
+  TABS.push({ id: 'files', name: 'Файлы на телефон', short: 'Файлы', icon: 'upload' });
   try { renderNav(); } catch (e) { /* */ }
 }
 

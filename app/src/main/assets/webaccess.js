@@ -80,8 +80,9 @@
   const prevSettings = SCREENS.settings;
   SCREENS.settings = function () {
     const html = prevSettings();
-    const anchor = '<div class="section-title">Напоминания</div>';
-    return html.includes(anchor) ? html.replace(anchor, block() + anchor) : html + block();
+    // «Доступ с компьютера» — первым разделом настроек, над «Исполнителями»
+    const anchor = '<div class="section-title">Исполнители</div>';
+    return html.includes(anchor) ? html.replace(anchor, block() + '\n    ' + anchor) : html + block();
   };
   if (ui.tab === 'settings') render();
 })();

@@ -100,6 +100,14 @@ button { cursor: pointer; }
 .nav-items button { min-width: 0; }
 .nav-items button span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 430px) { .nav-items button { font-size: 10px; padding-left: 0; padding-right: 0; } }
+/* Узкий экран: все разделы в два ряда по 4 (нечётный остаток — слева, той же ширины) */
+@media (max-width: 599px) {
+  .nav-items.two-rows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .nav-items.two-rows button { padding: 6px 2px 5px; }
+  .nav-items.two-rows button svg { width: 22px; height: 22px; }
+  .nav-items.two-rows button + button { border: 0; }
+  .main { padding-bottom: 88px; } /* последний элемент списка не прячется под плавающую кнопку «+» */
+}
 .nav button.active { color: var(--accent); }
 .nav .badge {
   position: absolute; top: 4px; left: 50%; margin-left: 6px;
@@ -352,8 +360,8 @@ button { cursor: pointer; }
 .modal-box { background: var(--panel); width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + var(--safe-b)); }
 @media (min-width: 600px) { .modal { align-items: center; } .modal-box { border-radius: 18px; } }
 .modal-box h3 { margin: 0 0 12px; }
-.toast { position: fixed; left: 50%; bottom: calc(84px + var(--safe-b)); transform: translateX(-50%); background: #222634; color: #fff; padding: 10px 16px; border-radius: 12px; z-index: 50; font-size: 14px; max-width: 90vw; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
-.fab { position: fixed; right: 18px; bottom: calc(80px + var(--safe-b)); width: 56px; height: 56px; border-radius: 18px; border: 0; background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(47, 91, 234, .4); display: grid; place-items: center; z-index: 10; }
+.toast { position: fixed; left: 50%; bottom: calc(var(--nav-h, 64px) + 20px); transform: translateX(-50%); background: #222634; color: #fff; padding: 10px 16px; border-radius: 12px; z-index: 50; font-size: 14px; max-width: 90vw; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
+.fab { position: fixed; right: 18px; bottom: calc(var(--nav-h, 64px) + 16px); width: 56px; height: 56px; border-radius: 18px; border: 0; background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(47, 91, 234, .4); display: grid; place-items: center; z-index: 10; }
 .fab svg { width: 26px; height: 26px; }
 @media (min-width: 600px) { .fab { display: none; } }
 .only-narrow { }
@@ -789,3 +797,20 @@ button.chip { border: 0; font: inherit; font-size: 12px; cursor: pointer; }
 .cl-grip { cursor: grab; color: var(--muted); padding: 4px 6px; touch-action: none; user-select: none; font-size: 16px; }
 .cl-sname { border: 0; background: none; padding: 6px 2px; font: inherit; font-size: 14px; color: var(--text); text-align: left; cursor: pointer; min-width: 0; }
 .cl-mv:disabled { opacity: .3; }
+
+/* ---------- Дорожная карта 1.9.1: недели, подписи-проекты, подсветка ---------- */
+.rd-ws { position: relative; height: 18px; border-top: 1px solid var(--line); }
+.rd-wk { position: absolute; top: 0; height: 18px; border-left: 1px solid var(--line); font-style: normal; font-size: 10.5px; color: var(--muted); text-align: center; line-height: 17px; box-sizing: border-box; opacity: .9; }
+.rd-ws.nolabel .rd-wk { opacity: .6; }
+.rd-wgrid { position: absolute; top: 62px; bottom: 0; width: 1px; background: var(--line); opacity: .28; }
+.rd-grid { opacity: .8 !important; }
+.rd-tick { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--c); border: 2px solid var(--panel); box-sizing: content-box; z-index: 3; }
+.rd-chip { position: absolute; z-index: 3; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px 0 5px; border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: 12px; background: var(--panel); box-shadow: 0 1px 4px rgba(0,0,0,.08); font: inherit; font-size: 12.5px; font-weight: 650; color: var(--text); cursor: pointer; box-sizing: border-box; white-space: nowrap; }
+.rd-chip:hover { box-shadow: 0 0 0 2px var(--c), 0 2px 8px rgba(0,0,0,.1); }
+.rd-cdot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--c); display: grid; place-items: center; color: #fff; }
+.rd-cdot svg { width: 8px; height: 8px; stroke-width: 3.5; }
+.rd-cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rd-cnum { flex: none; margin-left: auto; font-size: 11px; background: var(--c); color: #fff; border-radius: 8px; padding: 0 5px; line-height: 16px; }
+@keyframes rdFlash { 0%, 100% { box-shadow: 0 0 0 0 rgba(47,91,234,0); } 30%, 70% { box-shadow: 0 0 0 5px rgba(47,91,234,.45); } }
+.rd-flash { animation: rdFlash 1.2s ease-in-out; z-index: 6 !important; }
+.rd-lab.rd-flash { background: var(--accent-soft); }

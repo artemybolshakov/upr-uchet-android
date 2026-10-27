@@ -80,18 +80,55 @@ var Roadmap = (function () {
     });
   }
 
-  /* Диапазон шкалы. Все режимы начинаются с месяца до текущего:
-     quarter — 4 месяца, half — 7, year — 13 (до 11 месяцев вперёд), all — от первой до последней вехи (не меньше «Года»). */
+  /* Диапазон шкалы — всегда покрывает все вехи (режимы «Квартал / Полгода / Год / Всё» меняют только масштаб):
+     от месяца до сегодняшнего (или месяца самой ранней вехи, если она раньше) до месяца после последней вехи,
+     но не меньше 12 месяцев. key оставлен для совместимости вызова и на диапазон не влияет. */
   function range(key, today, items) {
-    var from = monthStart(today, -1);
-    var len = { quarter: 4, half: 7, year: 13 }[key];
-    if (len) return { from: from, to: addDays(monthStart(today, len - 1), -1) };
-    var to = addDays(monthStart(today, 12), -1);
+    var from = monthStart(today, -1), last = today;
     (items || []).forEach(function (m) {
       if (m.due < from) from = monthStart(m.due);
-      if (m.due > to) to = addDays(monthStart(m.due, 1), -1);
+      if (m.due > last) last = m.due;
     });
-    return { from: from, to: to };
+    var to = addDays(monthStart(last, 2), -1);           // конец месяца, следующего за последней вехой
+    var min = addDays(monthStart(from, 12), -1);          // не меньше 12 месяцев
+    return { from: from, to: to > min ? to : min };
+  }
+
+  /* Масштаб (пикселей на день): сколько дней помещается в видимую ширину.
+     quarter ≈ 3 месяца, half ≈ 6, year ≈ 12, all — вся шкала; не мельче, чем «вся шкала в окне». */
+  var SPAN = { quarter: 92, half: 183, year: 366 };
+  function ppd(key, avail, days) {
+    var fit = avail / Math.max(1, days);
+    return Math.max(fit, SPAN[key] ? avail / SPAN[key] : fit);
+  }
+
+  /* ---------- Недели ---------- */
+  var MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  function weekday(s) { return (new Date(toUTC(s)).getUTCDay() + 6) % 7; } // 0 — понедельник
+  function weekStart(s) { return addDays(day(s), -weekday(s)); }
+  /* Неделя относится к месяцу, в котором её четверг; номер — порядковый внутри месяца (1–5). */
+  function weekInfo(monday) {
+    var th = addDays(monday, 3), m = +th.slice(5, 7) - 1, n = Math.ceil(+th.slice(8, 10) / 7);
+    return { monday: monday, n: n, month: m, year: +th.slice(0, 4), label: n + '-я неделя ' + MONTHS_GEN[m] };
+  }
+  /* Понедельники шкалы с номерами недель */
+  function weeks(r) {
+    var out = [], w = weekStart(r.from);
+    while (w <= r.to) { out.push(weekInfo(w)); w = addDays(w, 7); }
+    return out;
+  }
+  /* Вехи по неделям (и по проектам, если byProject): [{ key, monday, projectId, items, state, ids }] по возрастанию недели */
+  function byWeek(items, byProject) {
+    var map = {}, order = [];
+    items.forEach(function (m) {
+      var mon = weekStart(m.due), k = mon + (byProject ? '|' + (m.projectId || '') : '');
+      if (!map[k]) { map[k] = { key: k, monday: mon, projectId: m.projectId || null, items: [], state: 'done' }; order.push(k); }
+      var g = map[k];
+      g.items.push(m);
+      if (STATE_RANK[m.state] > STATE_RANK[g.state]) g.state = m.state;
+    });
+    return order.map(function (k) { var g = map[k]; g.ids = g.items.map(function (m) { return m.id; }); return g; })
+      .sort(function (a, b) { return a.monday < b.monday ? -1 : a.monday > b.monday ? 1 : 0; });
   }
 
   /* Месяцы и кварталы шкалы: [{ from, to, label }] */
@@ -154,7 +191,8 @@ var Roadmap = (function () {
 
   return {
     RANGES: RANGES, state: state, owner: owner, milestones: milestones, undated: undated, projectFinish: projectFinish,
-    projectRows: projectRows, range: range, months: months, quarters: quarters, clusters: clusters, layout: layout, diff: diff, addDays: addDays,
+    projectRows: projectRows, range: range, ppd: ppd, months: months, quarters: quarters, clusters: clusters, layout: layout, diff: diff, addDays: addDays,
+    weekStart: weekStart, weekInfo: weekInfo, weeks: weeks, byWeek: byWeek,
   };
 })();
 

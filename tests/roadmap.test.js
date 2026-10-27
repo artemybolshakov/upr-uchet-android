@@ -85,19 +85,55 @@ check('полоса: от первой вехи, если она раньше с
 });
 
 console.log('Шкала');
-check('«Год»: от месяца до сегодняшнего до 11 месяцев вперёд', () => {
-  assert.deepStrictEqual(R.range('year', TODAY), { from: '2026-09-01', to: '2027-09-30' });
-  assert.deepStrictEqual(R.range('quarter', TODAY), { from: '2026-09-01', to: '2026-12-31' });
-  assert.deepStrictEqual(R.range('half', TODAY), { from: '2026-09-01', to: '2027-03-31' });
+check('шкала не меньше 12 месяцев, от месяца до сегодняшнего; режим масштаба на диапазон не влияет', () => {
+  for (const k of ['quarter', 'half', 'year', 'all']) assert.deepStrictEqual(R.range(k, TODAY, []), { from: '2026-09-01', to: '2027-08-31' });
 });
-check('«Всё»: до последней вехи (не меньше года) и с самой ранней', () => {
-  const r = R.range('all', TODAY, [{ due: '2026-03-10' }, { due: '2028-02-03' }]);
-  assert.deepStrictEqual(r, { from: '2026-03-01', to: '2028-02-29' });
+check('шкала покрывает все вехи: 2026, 2028, 2030 (ошибка 1.9.0: вехи после 13 месяцев пропадали)', () => {
+  const items = [{ due: '2026-11-15' }, { due: '2028-03-10' }, { due: '2030-06-20' }];
+  for (const k of ['quarter', 'half', 'year', 'all']) {
+    const r = R.range(k, TODAY, items);
+    assert.strictEqual(r.from, '2026-09-01');
+    assert.strictEqual(r.to, '2030-07-31'); // месяц после последней вехи
+    items.forEach((m) => assert.ok(m.due >= r.from && m.due <= r.to, k + ' ' + m.due));
+  }
 });
-check('месяцы и кварталы', () => {
-  const r = R.range('quarter', TODAY);
+check('ранняя (просроченная) веха раздвигает начало шкалы', () => {
+  assert.deepStrictEqual(R.range('year', TODAY, [{ due: '2026-03-10' }]), { from: '2026-03-01', to: '2027-02-28' });
+});
+check('масштаб: «Квартал» крупнее «Года», «Всё» вписывает всю шкалу', () => {
+  const days = 1430;
+  assert.ok(R.ppd('quarter', 1000, days) > R.ppd('half', 1000, days));
+  assert.ok(R.ppd('half', 1000, days) > R.ppd('year', 1000, days));
+  assert.ok(Math.abs(R.ppd('all', 1000, days) * days - 1000) < 1e-6);
+  assert.ok(Math.abs(R.ppd('year', 1000, 200) * 200 - 1000) < 1e-6); // короткая шкала не уже окна
+});
+check('месяцы и кварталы, в том числе подписи лет 2029–2030', () => {
+  const r = { from: '2026-09-01', to: '2026-12-31' };
   assert.deepStrictEqual(R.months(r).map((m) => m.label), ['сен', 'окт', 'ноя', 'дек']);
   assert.deepStrictEqual(R.quarters(r).map((q) => q.label), ['3 кв. 2026', '4 кв. 2026']);
+  const far = R.range('all', TODAY, [{ due: '2030-02-14' }]);
+  assert.ok(R.months(far).some((m) => m.label === 'янв 2029') && R.months(far).some((m) => m.label === 'янв 2030'));
+  assert.deepStrictEqual(R.quarters(far).slice(-2).map((q) => q.label), ['4 кв. 2029', '1 кв. 2030']);
+});
+check('недели: понедельник, номер внутри месяца по четвергу', () => {
+  assert.strictEqual(R.weekStart('2026-11-18'), '2026-11-16'); // среда → понедельник
+  assert.strictEqual(R.weekStart('2026-11-16'), '2026-11-16');
+  assert.strictEqual(R.weekStart('2026-11-22'), '2026-11-16'); // воскресенье
+  assert.strictEqual(R.weekInfo('2026-11-16').label, '3-я неделя ноября');
+  // неделя 28.09–04.10.2026: четверг 1 октября → 1-я неделя октября
+  assert.deepStrictEqual([R.weekInfo('2026-09-28').n, R.weekInfo('2026-09-28').month], [1, 9]);
+  // неделя 26.10–01.11.2026: четверг 29 октября → 5-я неделя октября
+  assert.strictEqual(R.weekInfo('2026-10-26').label, '5-я неделя октября');
+  const ws = R.weeks({ from: '2026-11-01', to: '2026-11-30' });
+  assert.strictEqual(ws[0].monday, '2026-10-26');
+  assert.strictEqual(ws[ws.length - 1].monday, '2026-11-30');
+});
+check('вехи по неделям: одна точка на проект и неделю, худшее состояние', () => {
+  const it = (id, due, projectId, state) => ({ id, due, projectId, state });
+  const g = R.byWeek([it('a', '2026-11-16', 'P1', 'later'), it('b', '2026-11-20', 'P1', 'overdue'), it('c', '2026-11-18', 'P2', 'soon'), it('d', '2026-11-25', null, 'done')], true);
+  assert.deepStrictEqual(g.map((x) => [x.monday, x.projectId, x.ids.join(','), x.state]), [
+    ['2026-11-16', 'P1', 'a,b', 'overdue'], ['2026-11-16', 'P2', 'c', 'soon'], ['2026-11-23', null, 'd', 'done']]);
+  assert.strictEqual(R.byWeek([it('a', '2026-11-16', 'P1', 'later'), it('c', '2026-11-18', 'P2', 'soon')], false).length, 1);
 });
 check('больше 3 вех на одну дату — кружок «+N»', () => {
   const it = (id, due) => ({ id, due, state: 'later' });
