@@ -50,7 +50,7 @@
             android:launchMode="singleInstance"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
-            android:taskAffinity="com.artemiy.uprucheet.alarm"
+            android:taskAffinity="com.artemiy.uprucheet.v2.alarm"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density"
             android:theme="@style/AlarmTheme" />
 
@@ -67,7 +67,7 @@
         <!-- Отдаёт системному установщику APK, переданный с компьютера (замена androidx FileProvider) -->
         <provider
             android:name=".ApkProvider"
-            android:authorities="com.artemiy.uprucheet.apk"
+            android:authorities="com.artemiy.uprucheet.v2.apk"
             android:exported="false"
             android:grantUriPermissions="true" />
 

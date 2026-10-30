@@ -22,13 +22,36 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - run: gradle assembleDebug --stacktrace
+      - name: Prepare private signing key
+        env:
+          UPR_SIGNING_KEYSTORE_BASE64: ${{ secrets.UPR_SIGNING_KEYSTORE_BASE64 }}
+          UPR_SIGNING_STORE_PASSWORD: ${{ secrets.UPR_SIGNING_STORE_PASSWORD }}
+          UPR_SIGNING_KEY_ALIAS: ${{ secrets.UPR_SIGNING_KEY_ALIAS }}
+          UPR_SIGNING_KEY_PASSWORD: ${{ secrets.UPR_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in UPR_SIGNING_KEYSTORE_BASE64 UPR_SIGNING_STORE_PASSWORD UPR_SIGNING_KEY_ALIAS UPR_SIGNING_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required GitHub Actions secret: $name" >&2
+              exit 1
+            fi
+          done
+          printf '%s' "$UPR_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upr-uchet-v2.jks"
+          chmod 600 "$RUNNER_TEMP/upr-uchet-v2.jks"
+          test -s "$RUNNER_TEMP/upr-uchet-v2.jks"
+      - name: Build signed APK
+        env:
+          UPR_SIGNING_STORE_FILE: ${{ runner.temp }}/upr-uchet-v2.jks
+          UPR_SIGNING_STORE_PASSWORD: ${{ secrets.UPR_SIGNING_STORE_PASSWORD }}
+          UPR_SIGNING_KEY_ALIAS: ${{ secrets.UPR_SIGNING_KEY_ALIAS }}
+          UPR_SIGNING_KEY_PASSWORD: ${{ secrets.UPR_SIGNING_KEY_PASSWORD }}
+        run: gradle assembleDebug --stacktrace
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk UprUchet-debug.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk UprUchet-v2.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: upr-uchet-apk
-          path: UprUchet-debug.apk
+          name: upr-uchet-v2-apk
+          path: UprUchet-v2.apk
       - name: Publish release with APK
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:

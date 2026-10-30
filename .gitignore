@@ -2,3 +2,5 @@ build/
 .gradle/
 local.properties
 *.apk
+*.jks
+*.keystore

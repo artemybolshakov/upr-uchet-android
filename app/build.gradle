@@ -2,38 +2,51 @@ plugins {
     id "com.android.application"
 }
 
+// The public v1 signing keystore was exposed. Distributed v2 builds must use
+// the new private key supplied through GitHub Actions secrets.
+def signingStoreFile = System.getenv("UPR_SIGNING_STORE_FILE")
+def signingStorePassword = System.getenv("UPR_SIGNING_STORE_PASSWORD")
+def signingKeyAlias = System.getenv("UPR_SIGNING_KEY_ALIAS")
+def signingKeyPassword = System.getenv("UPR_SIGNING_KEY_PASSWORD")
+def signingValues = [signingStoreFile, signingStorePassword, signingKeyAlias, signingKeyPassword]
+def signingProvided = signingValues.any { it != null && !it.isEmpty() }
+def hasSecureSigning = signingValues.every { it != null && !it.isEmpty() }
+if (signingProvided && !hasSecureSigning) {
+    throw new GradleException("Incomplete signing configuration. Set all UPR_SIGNING_* variables.")
+}
+
 android {
     namespace "com.artemiy.uprucheet"
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.artemiy.uprucheet"
+        // New app identity: it can be installed beside the old, compromised v1 app.
+        applicationId "com.artemiy.uprucheet.v2"
         minSdk 26
         targetSdk 35
-        versionCode 19
-        versionName "1.10.0"
-        // Номер сборки GitHub Actions — показывается при установке обновления («сборка N»)
+        versionCode 1
+        versionName "2.0.0"
         manifestPlaceholders = [buildNumber: System.getenv("GITHUB_RUN_NUMBER") ?: "0"]
     }
 
-    // Постоянный ключ подписи: без него каждая сборка в GitHub Actions подписывалась новым
-    // случайным debug-ключом, и новую версию нельзя было установить поверх старой.
-    signingConfigs {
-        shared {
-            storeFile file("upr-uchet.jks")
-            storePassword "uprucheet"
-            keyAlias "upr"
-            keyPassword "uprucheet"
+    if (hasSecureSigning) {
+        signingConfigs {
+            secure {
+                storeFile file(signingStoreFile)
+                storePassword signingStorePassword
+                keyAlias signingKeyAlias
+                keyPassword signingKeyPassword
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig signingConfigs.shared
+            if (hasSecureSigning) signingConfig signingConfigs.secure
         }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.shared
+            if (hasSecureSigning) signingConfig signingConfigs.secure
         }
     }
 
