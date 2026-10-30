@@ -24,8 +24,8 @@ import java.util.Locale;
 
 /** Фоновый сервис «Доступ с компьютера»: держит веб-сервер, пока доступ включён. */
 public class WebAccessService extends Service {
-    public static final String ACTION_START = "com.artemiy.uprucheet.WEB_START";
-    public static final String ACTION_STOP = "com.artemiy.uprucheet.WEB_STOP";
+    public static final String ACTION_START = "com.artemiy.uprucheet.v2.WEB_START";
+    public static final String ACTION_STOP = "com.artemiy.uprucheet.v2.WEB_STOP";
     private static final String CHANNEL = "web_access";
     private static final int NOTIFICATION_ID = 5151;
     /** Автоматическое выключение после простоя (мс). */

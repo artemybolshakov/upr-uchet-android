@@ -24,9 +24,9 @@ import android.os.Vibrator;
  * пока пользователь вручную не нажмёт «Отключить» или «Отложить».
  */
 public class AlarmService extends Service {
-    public static final String ACTION_RING = "com.artemiy.uprucheet.RING";
-    public static final String ACTION_STOP = "com.artemiy.uprucheet.STOP";
-    public static final String ACTION_SNOOZE = "com.artemiy.uprucheet.SNOOZE";
+    public static final String ACTION_RING = "com.artemiy.uprucheet.v2.RING";
+    public static final String ACTION_STOP = "com.artemiy.uprucheet.v2.STOP";
+    public static final String ACTION_SNOOZE = "com.artemiy.uprucheet.v2.SNOOZE";
     public static final String CHANNEL_ALARMS = "alarms_v1";
     private static final int NOTIFICATION_ID = 4242;
 

@@ -16,7 +16,7 @@ import java.io.FileNotFoundException;
  * Только чтение, только файлы .apk из getExternalFilesDir("updates"); доступ — по временному разрешению из Intent.
  */
 public class ApkProvider extends ContentProvider {
-    static final String AUTHORITY = "com.artemiy.uprucheet.apk";
+    static final String AUTHORITY = "com.artemiy.uprucheet.v2.apk";
 
     static Uri uriFor(File f) {
         return new Uri.Builder().scheme("content").authority(AUTHORITY).appendPath(f.getName()).build();

@@ -195,7 +195,7 @@ public final class Updates {
                 nm.createNotificationChannel(ch);
             }
             Intent open = new Intent(c, MainActivity.class)
-                    .setAction("com.artemiy.uprucheet.INSTALL_UPDATE")
+                    .setAction("com.artemiy.uprucheet.v2.INSTALL_UPDATE")
                     .putExtra("update", f.getName())
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             PendingIntent pi = PendingIntent.getActivity(c, 7001, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

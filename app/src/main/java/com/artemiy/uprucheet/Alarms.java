@@ -27,7 +27,7 @@ public final class Alarms {
 
     private static PendingIntent pending(Context c, String key, String title, String text, boolean aggressive, String ref, boolean create) {
         Intent i = new Intent(c, AlarmReceiver.class);
-        i.setAction("com.artemiy.uprucheet.ALARM." + key);
+        i.setAction("com.artemiy.uprucheet.v2.ALARM." + key);
         i.putExtra(EXTRA_KEY, key);
         i.putExtra(EXTRA_TITLE, title);
         i.putExtra(EXTRA_TEXT, text);
