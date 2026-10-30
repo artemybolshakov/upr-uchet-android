@@ -58,6 +58,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="build-${{ github.run_number }}"
-          gh release create "$TAG" UprUchet-debug.apk --title "Сборка ${{ github.run_number }}" --notes "Автосборка из ${{ github.sha }}" --latest
+          gh release create "$TAG" UprUchet-v2.apk --title "Сборка ${{ github.run_number }}" --notes "Автосборка из ${{ github.sha }}" --latest
     permissions:
       contents: write
